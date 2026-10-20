@@ -6,6 +6,7 @@
   import { sleep } from "$lib/utils"
   import { getSerialContext } from "$lib/serial-context"
   import { onDestroy } from "svelte"
+  import { FIRMWARE_FACTORY_BIN_URL } from "$lib/firmware"
 
   interface Props {
     file?: string
@@ -16,7 +17,7 @@
   }
 
   let {
-    file = "https://transit-tracker.eastsideurbanism.org/firmware/firmware.factory.bin",
+    file = FIRMWARE_FACTORY_BIN_URL,
     offset = 0,
     eraseFlash = false,
     bootButtonRequired = true,
@@ -35,7 +36,7 @@
   async function beginFlash() {
     flashing = true
     progress = 0
-    statusMessage = "Connecting to Transit Tracker..."
+    statusMessage = "Connecting to Bike Tracker..."
 
     try {
       port = await ctx.getSerialPort(bootButtonRequired)
@@ -123,7 +124,7 @@
 </script>
 
 <p class="mb-4 leading-6">
-  Connect your Transit Tracker to this computer via USB and press the button below to flash the
+  Connect your Bike Tracker to this computer via USB and press the button below to flash the
   firmware.
 </p>
 

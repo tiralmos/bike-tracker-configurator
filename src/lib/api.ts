@@ -17,30 +17,27 @@ export interface Stop {
   lon: number
 }
 
-export interface Trip {
-  tripId: string
-  routeId: string
-  routeName: string
-  stopId: string
-  stopName: string
-  headsign: string
-  arrivalTime: number
-  departureTime: number
-  isRealtime: boolean
-}
-
-export interface Schedule {
-  trips: Trip[]
-}
-
-export interface Route {
-  routeId: string
+export interface StationListEntry {
+  stationId: string
   name: string
-  color: string | null
-  headsigns: string[]
+  lat: number
+  lon: number
 }
 
-class TransitTrackerApi {
+export interface StationStatus {
+  stationId: string
+  name: string
+  capacity: number | null
+  docksAvailable: number
+  mechanicalBikesAvailable: number
+  electricBikesAvailable: number
+  isInstalled: boolean
+  isRenting: boolean
+  isReturning: boolean
+  lastReported: number | null
+}
+
+class BikeTrackerApi {
   private baseUrl!: string
 
   constructor(state: Readable<ConfigState>) {
@@ -65,14 +62,24 @@ class TransitTrackerApi {
     return response.json()
   }
 
-  async getSchedule(pairs: string, limit: number = 10): Promise<Schedule> {
-    const response = await fetch(
-      `${this.baseUrl}/schedule/${encodeURIComponent(pairs)}?limit=${limit}`
-    )
+  async listStations(): Promise<StationListEntry[]> {
+    const response = await fetch(`${this.baseUrl}/stations`)
     if (!response.ok) {
-      throw new Error(`Error fetching schedule: ${response.statusText}`)
+      throw new Error(`Error fetching stations: ${response.statusText}`)
     }
     return response.json()
+  }
+
+  async getStations(stationIds: string[], signal?: AbortSignal): Promise<StationStatus[]> {
+    const response = await fetch(
+      `${this.baseUrl}/stations/${encodeURIComponent(stationIds.join(";"))}`,
+      { signal }
+    )
+    if (!response.ok) {
+      throw new Error(`Error fetching stations: ${response.statusText}`)
+    }
+    const { stations } = await response.json()
+    return stations
   }
 
   async getStopsWithin(bounds: number[][], signal?: AbortSignal): Promise<Stop[]> {
@@ -85,14 +92,6 @@ class TransitTrackerApi {
     }
     return response.json()
   }
-
-  async getRoutesForStop(stopId: string): Promise<Route[]> {
-    const response = await fetch(`${this.baseUrl}/stops/${encodeURIComponent(stopId)}/routes`)
-    if (!response.ok) {
-      throw new Error(`Error fetching routes for stop: ${response.statusText}`)
-    }
-    return response.json()
-  }
 }
 
-export const api = new TransitTrackerApi(config)
+export const api = new BikeTrackerApi(config)

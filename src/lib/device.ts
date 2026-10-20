@@ -12,15 +12,16 @@ async function* configRequestGenerator(
   yield device.setTextEntity("feed_code_config", "")
 
   yield device.setTextEntity(
-    "schedule_config",
-    config.routes
-      .map((route) => {
-        let pair = `${route.routeId},${route.stopId}`
-        const stopTimeOffset = config.stopTimeOffsets[route.stopId] ?? 0
-        if (stopTimeOffset !== 0) pair += `,${stopTimeOffset * -60}`
-        return pair
-      })
-      .join(";")
+    "stations_config",
+    config.stations.map((station) => station.stationId).join(";")
+  )
+
+  yield device.setTextEntity(
+    "station_names_config",
+    config.stations
+      .filter((station) => station.customName.trim() !== "")
+      .map((station) => `${station.stationId};${station.customName.trim()}`)
+      .join("\n")
   )
 
   yield device.setTextEntity("header_text_config", config.headerText)
@@ -34,19 +35,6 @@ async function* configRequestGenerator(
       .join("\n")
   )
 
-  yield device.setTextEntity(
-    "route_styles_config",
-    config.routeStyles
-      .map((style) => {
-        return `${style.routeId};${style.name};${style.color.replaceAll("#", "")}`
-      })
-      .join("\n")
-  )
-
-  yield device.setSelectEntity("time_display_config", config.timeDisplay)
-  yield device.setSelectEntity("time_units_config", config.timeUnits)
-  yield device.setSelectEntity("list_mode_config", config.listMode)
-
   if (!projectVersion || semver.lt(projectVersion, "2.7.0")) {
     yield device.setSwitchEntity(
       "flip_display",
@@ -55,17 +43,9 @@ async function* configRequestGenerator(
   }
 
   yield device.setSwitchEntity(
-    "scroll_headsigns",
-    config.headsignOverflow === "scroll" ? "ON" : "OFF"
+    "scroll_station_names",
+    config.nameOverflow === "scroll" ? "ON" : "OFF"
   )
-
-  yield device.setTextEntity("now_str_config", config.localization.now)
-
-  yield device.setTextEntity("min_long_str_config", config.localization.minLong)
-
-  yield device.setTextEntity("min_short_str_config", config.localization.minShort)
-
-  yield device.setTextEntity("hours_short_str_config", config.localization.hoursShort)
 }
 
 export async function pushConfigToDevice(config: ConfigState, device: TransitTrackerDevice) {

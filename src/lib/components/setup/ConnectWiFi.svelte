@@ -74,7 +74,7 @@
         deviceInfo = await rpcClient.getDeviceInfo()
       } catch (error: any) {
         alert(
-          `Your Transit Tracker isn't responding properly. Please try pressing the RESET button on the board and try again.\n\nError: ${error.message || error}`
+          `Your Bike Tracker isn't responding properly. Please try pressing the RESET button on the board and try again.\n\nError: ${error.message || error}`
         )
         await rpcClient.disconnect()
         rpcClient = null
@@ -282,16 +282,16 @@
   </div>
 {:else}
   <p class="mb-4 leading-6">
-    Connection to your Transit Tracker was lost. Please connect it to your computer and click the
+    Connection to your Bike Tracker was lost. Please connect it to your computer and click the
     button below to try again.
   </p>
 
   <Button class="w-full" disabled={initializing} onclick={scanForNetworks}>
     <Cable />
     {#if initializing}
-      Connecting to Transit Tracker...
+      Connecting to Bike Tracker...
     {:else}
-      Connect to Transit Tracker
+      Connect to Bike Tracker
     {/if}
   </Button>
 {/if}

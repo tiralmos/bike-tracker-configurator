@@ -80,7 +80,7 @@
       id="api-url"
       type="url"
     />
-    <p class="text-sm text-muted-foreground">The base URL for the Transit Tracker API to use</p>
+    <p class="text-sm text-muted-foreground">The base URL for the Bike Tracker API to use</p>
   </div>
 
   <div class="flex gap-2">

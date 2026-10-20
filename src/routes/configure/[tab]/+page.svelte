@@ -1,7 +1,7 @@
 <script lang="ts">
   import CustomizeConfig from "$lib/components/configuration/customize/CustomizeConfig.svelte"
   import PushConfigButton from "$lib/components/configuration/PushConfigButton.svelte"
-  import RouteConfig from "$lib/components/configuration/routes/RouteConfig.svelte"
+  import StationConfig from "$lib/components/configuration/stations/StationConfig.svelte"
   import { Button } from "$lib/components/ui/button"
   import * as Card from "$lib/components/ui/card"
   import { Separator } from "$lib/components/ui/separator"
@@ -14,7 +14,7 @@
     FileCode,
     FlaskConical,
     Paintbrush,
-    Route,
+    Bike,
     Unplug,
     Usb,
     Wifi
@@ -44,8 +44,8 @@
     <Dialog.Header>
       <Dialog.Title>Connect device</Dialog.Title>
       <Dialog.Description>
-        You can connect to your Transit Tracker via a USB connection to your computer or via your
-        local network.
+        You can connect to your Bike Tracker via a USB connection to your computer or via your local
+        network.
       </Dialog.Description>
     </Dialog.Header>
 
@@ -74,8 +74,8 @@
         <Button
           variant="link"
           size="small"
-          href="https://transit-tracker.eastsideurbanism.org/docs/advanced/esphome-component"
-          target="_blank">Transit Tracker ESPHome component</Button
+          href="https://github.com/tiralmos/esphome-bike-tracker"
+          target="_blank">Bike Tracker ESPHome component</Button
         >.
       </Dialog.Description>
     </Dialog.Header>
@@ -114,14 +114,14 @@
 <Card.Root class="w-xl">
   <Card.Header>
     <Card.Title>Configuration</Card.Title>
-    <Card.Description>Change how your Transit Tracker looks and acts.</Card.Description>
+    <Card.Description>Change how your Bike Tracker looks and acts.</Card.Description>
   </Card.Header>
   <Card.Content>
     <Tabs.Root value={page.params.tab} onValueChange={(value) => goto(`./${value}`)}>
       <Tabs.List class="mb-4 grid w-full grid-cols-3">
-        <Tabs.Trigger value="routes">
-          <Route size={16} class="mr-1" />
-          Routes
+        <Tabs.Trigger value="stations">
+          <Bike size={16} class="mr-1" />
+          Stations
         </Tabs.Trigger>
         <Tabs.Trigger value="customize">
           <Paintbrush size={16} class="mr-1" />
@@ -133,8 +133,8 @@
         </Tabs.Trigger>
       </Tabs.List>
 
-      <Tabs.Content value="routes">
-        <RouteConfig />
+      <Tabs.Content value="stations">
+        <StationConfig />
       </Tabs.Content>
 
       <Tabs.Content value="customize">

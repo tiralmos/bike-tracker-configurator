@@ -42,7 +42,7 @@
       return deviceInfo.project_version
     } catch (error: any) {
       alert(
-        `Your Transit Tracker isn't responding properly. Please try pressing the RESET button on the board and try again.\n\nError: ${error.message || error}`
+        `Your Bike Tracker isn't responding properly. Please try pressing the RESET button on the board and try again.\n\nError: ${error.message || error}`
       )
     } finally {
       await rpcClient?.disconnect()
@@ -91,9 +91,7 @@
       {#if !isUpdateAvailable(currentFirmwareVersion, latestFirmwareVersion)}
         <div class="flex items-center gap-2 text-lg">
           <CircleCheck size={24} class="text-green-400" />
-          <strong
-            >Your Transit Tracker is running the latest firmware: {latestFirmwareVersion}</strong
-          >
+          <strong>Your Bike Tracker is running the latest firmware: {latestFirmwareVersion}</strong>
         </div>
       {:else}
         <h2 class="text-center text-xl font-bold">Update available!</h2>
@@ -126,8 +124,8 @@
       {/if}
     {:else}
       <p class="mb-4 leading-6">
-        Connect your Transit Tracker to this computer via USB and press the button below to check
-        for updates.
+        Connect your Bike Tracker to this computer via USB and press the button below to check for
+        updates.
       </p>
 
       <Button class="w-full" onclick={checkForUpdates} disabled={checking}>

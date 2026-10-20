@@ -1,13 +1,13 @@
 import { FONT_BITMAP, type Glyph, GLYPH_TABLE } from "./font"
 
-export interface Trip {
-  routeId: string
-  routeName: string
-  routeColor: Color
-  headsign: string
-  arrivalTime: number
-  departureTime: number
-  isRealtime: boolean
+export interface Station {
+  stationId: string
+  name: string
+  docksAvailable: number
+  mechanicalBikesAvailable: number
+  electricBikesAvailable: number
+  isRenting: boolean
+  isReturning: boolean
 }
 
 export interface Color {
@@ -15,8 +15,6 @@ export interface Color {
   g: number
   b: number
 }
-
-export type UnitDisplay = "long" | "short" | "none"
 
 export interface SimulatorOptions {
   width?: number
@@ -26,10 +24,8 @@ export interface SimulatorOptions {
   glowAlpha?: number
   brightness?: number
   limit?: number
-  unitDisplay?: UnitDisplay
-  displayDepartureTimes?: boolean
-  scrollHeadsigns?: boolean
-  realtimeColor?: Color
+  headerText?: string
+  scrollStationNames?: boolean
 }
 
 function colorToCSS(c: Color): string {
@@ -152,104 +148,6 @@ class PixelFramebuffer {
   }
 }
 
-function formatDurationFromNow(
-  unixTimestamp: number,
-  rtcNow: number,
-  unitDisplay: UnitDisplay
-): string {
-  const diff = unixTimestamp - rtcNow
-
-  if (diff < 30) return "Now"
-
-  if (diff < 60) {
-    switch (unitDisplay) {
-      case "long":
-        return "0min"
-      case "short":
-        return "0m"
-      case "none":
-        return "0"
-    }
-  }
-
-  const minutes = Math.floor(diff / 60)
-
-  if (minutes < 60) {
-    switch (unitDisplay) {
-      case "long":
-        return `${minutes}min`
-      case "short":
-        return `${minutes}m`
-      case "none":
-        return `${minutes}`
-    }
-  }
-
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-
-  switch (unitDisplay) {
-    case "long":
-    case "short":
-      return `${hours}h${remainingMinutes}m`
-    case "none":
-      return `${hours}:${String(remainingMinutes).padStart(2, "0")}`
-  }
-}
-
-const REALTIME_ICON: number[][] = [
-  [0, 0, 0, 3, 3, 3],
-  [0, 0, 3, 0, 0, 0],
-  [0, 3, 0, 0, 2, 2],
-  [3, 0, 0, 2, 0, 0],
-  [3, 0, 2, 0, 0, 1],
-  [3, 0, 2, 0, 1, 1]
-]
-
-function drawRealtimeIcon(
-  fb: PixelFramebuffer,
-  bottomRightX: number,
-  bottomRightY: number,
-  uptime: number,
-  realtimeColor: Color,
-  realtimeColorDark: Color
-) {
-  const numFrames = 6
-  const idleFrameDuration = 3000
-  const animFrameDuration = 200
-  const cycleDuration = idleFrameDuration + (numFrames - 1) * animFrameDuration
-
-  const cycleTime = uptime % cycleDuration
-  let frame: number
-  if (cycleTime < idleFrameDuration) {
-    frame = 0
-  } else {
-    frame = 1 + Math.floor((cycleTime - idleFrameDuration) / animFrameDuration)
-  }
-
-  const isSegmentLit = (segment: number): boolean => {
-    switch (segment) {
-      case 1:
-        return frame >= 1 && frame <= 3
-      case 2:
-        return frame >= 2 && frame <= 4
-      case 3:
-        return frame >= 3 && frame <= 5
-      default:
-        return false
-    }
-  }
-
-  for (let i = 0; i < 6; i++) {
-    for (let j = 0; j < 6; j++) {
-      const segment = REALTIME_ICON[i][j]
-      if (segment === 0) continue
-      const color = isSegmentLit(segment) ? realtimeColor : realtimeColorDark
-      fb.drawPixel(bottomRightX - (5 - j), bottomRightY - (5 - i), color)
-    }
-  }
-}
-
 const SCROLL_SPEED = 10 // pixels/second
 const IDLE_TIME_LEFT = 5000 // ms
 const IDLE_TIME_RIGHT = 1000 // ms
@@ -353,36 +251,78 @@ class CanvasRenderer {
   }
 }
 
-export class TransitTrackerSimulator {
+// Keep in sync with the icons in the ESPHome component (bike_tracker.cpp).
+// '#' uses the icon's color, '+' the accent (bolt) color.
+const DOCK_ICON = [".#####.", "##...##", "##.#.##", "##...##", "##.####", "##.####", ".#####."]
+
+const BIKE_ICON = [
+  "..##...##..",
+  "...#...#...",
+  "...#####...",
+  ".##.#.#.##.",
+  "#..#.#.#..#",
+  "#..#...#..#",
+  ".##.....##."
+]
+
+const EBIKE_ICON = [
+  "..+..##...##..",
+  ".+....#...#...",
+  "+++...#####...",
+  ".+..##.#.#.##.",
+  "+..#..#.#.#..#",
+  "...#..#...#..#",
+  "....##.....##."
+]
+
+const ICON_COUNT_GAP = 1
+const GROUP_GAP = 3
+
+const DOCKS_COLOR = hexColor(0x2ecc40)
+const MECHANICAL_COLOR = hexColor(0xe2001a)
+const ELECTRIC_COLOR = hexColor(0x00a8ff)
+const BOLT_COLOR = hexColor(0xffd200)
+const COUNT_COLOR = hexColor(0xffffff)
+const UNAVAILABLE_COLOR = hexColor(0x404040)
+const HEADER_COLOR = hexColor(0x00bdbd)
+
+function drawIcon(
+  fb: PixelFramebuffer,
+  rows: string[],
+  leftX: number,
+  bottomY: number,
+  color: Color,
+  accentColor: Color
+) {
+  rows.forEach((row, rowIndex) => {
+    const y = bottomY - (rows.length - 1 - rowIndex)
+    for (let col = 0; col < row.length; col++) {
+      if (row[col] === "#") fb.drawPixel(leftX + col, y, color)
+      else if (row[col] === "+") fb.drawPixel(leftX + col, y, accentColor)
+    }
+  })
+}
+
+export class BikeTrackerSimulator {
   private fb: PixelFramebuffer
   private renderer: CanvasRenderer
   private font = new BitmapFont()
-  private trips: Trip[] = []
+  private stations: Station[] = []
   private animationId: number | null = null
   private startTime = 0
 
   private width: number
   private height: number
   private limit: number
-  private unitDisplay: UnitDisplay
-  private displayDepartureTimes: boolean
-  private scrollHeadsigns: boolean
-  private realtimeColor: Color
-  private realtimeColorDark: Color
+  private headerText: string
+  private scrollStationNames: boolean
 
   constructor(canvas: HTMLCanvasElement, options: SimulatorOptions = {}) {
     this.width = options.width ?? 128
     this.height = options.height ?? 32
     this.limit = options.limit ?? 3
-    this.unitDisplay = options.unitDisplay ?? "short"
-    this.displayDepartureTimes = options.displayDepartureTimes ?? true
-    this.scrollHeadsigns = options.scrollHeadsigns ?? true
-    this.realtimeColor = options.realtimeColor ?? { r: 0x20, g: 0xff, b: 0x00 }
-    this.realtimeColorDark = {
-      r: Math.floor(this.realtimeColor.r * 0.5),
-      g: Math.floor(this.realtimeColor.g * 0.5),
-      b: Math.floor(this.realtimeColor.b * 0.5)
-    }
+    this.headerText = options.headerText ?? ""
+    this.scrollStationNames = options.scrollStationNames ?? true
 
     this.fb = new PixelFramebuffer(this.width, this.height)
     this.renderer = new CanvasRenderer(
@@ -396,8 +336,8 @@ export class TransitTrackerSimulator {
     )
   }
 
-  setTrips(trips: Trip[]) {
-    this.trips = trips
+  setStations(stations: Station[]) {
+    this.stations = stations
   }
 
   start() {
@@ -420,8 +360,8 @@ export class TransitTrackerSimulator {
   private drawFrame() {
     this.fb.clear()
 
-    if (this.trips.length === 0) {
-      const msg = "No upcoming departures"
+    if (this.stations.length === 0) {
+      const msg = "No stations selected"
       const color = { r: 150, g: 150, b: 150 }
       const textWidth = this.font.measureText(msg)
       const x = Math.floor((this.width - textWidth) / 2)
@@ -432,17 +372,18 @@ export class TransitTrackerSimulator {
     }
 
     const uptime = performance.now() - this.startTime
-    const rtcNow = Math.floor(Date.now() / 1000)
     const fontAscender = this.font.getAscender()
     const fontDescender = this.font.getDescender()
     const nominalFontHeight = fontAscender + fontDescender
+    // The header text takes the place of one station row
+    const stations = this.stations.slice(0, this.headerText ? this.limit - 1 : this.limit)
 
-    // Two-pass headsign overflow measurement for synchronized scrolling
+    // Two-pass name overflow measurement for synchronized scrolling
     let scrollCycleDuration = 0
-    if (this.scrollHeadsigns) {
+    if (this.scrollStationNames) {
       let largestOverflow = 0
-      for (const trip of this.trips) {
-        const overflow = this.measureTripHeadsignOverflow(trip, nominalFontHeight, rtcNow)
+      for (const station of stations) {
+        const overflow = this.font.measureText(station.name) - this.drawCounts(station, 0, false)
         largestOverflow = Math.max(largestOverflow, overflow)
       }
       if (largestOverflow > 0) {
@@ -452,84 +393,85 @@ export class TransitTrackerSimulator {
     }
 
     // Vertical centering (matching C++ logic)
-    const maxTripsHeight = this.limit * fontAscender + (this.limit - 1) * fontDescender
-    let yOffset = Math.floor((this.height % maxTripsHeight) / 2)
+    const maxRowsHeight = this.limit * fontAscender + (this.limit - 1) * fontDescender
+    let yOffset = Math.floor((this.height % maxRowsHeight) / 2)
 
-    for (const trip of this.trips) {
-      this.drawTrip(trip, yOffset, nominalFontHeight, uptime, rtcNow, scrollCycleDuration)
+    if (this.headerText) {
+      this.font.drawText(this.fb, 0, yOffset, this.headerText, HEADER_COLOR)
+      yOffset += nominalFontHeight
+    }
+
+    for (const station of stations) {
+      this.drawStation(station, yOffset, uptime, scrollCycleDuration)
       yOffset += nominalFontHeight
     }
 
     this.renderer.render(this.fb)
   }
 
-  private measureTripHeadsignOverflow(trip: Trip, fontHeight: number, rtcNow: number): number {
-    const routeWidth = this.font.measureText(trip.routeName)
-    const timeText = formatDurationFromNow(
-      this.displayDepartureTimes ? trip.departureTime : trip.arrivalTime,
-      rtcNow,
-      this.unitDisplay
-    )
-    const timeWidth = this.font.measureText(timeText)
+  /** Draws the icon and count groups and returns where the station name must end. */
+  private drawCounts(station: Station, yOffset: number, draw: boolean): number {
+    const groups = [
+      {
+        icon: EBIKE_ICON,
+        count: station.electricBikesAvailable,
+        color: ELECTRIC_COLOR,
+        available: station.isRenting
+      },
+      {
+        icon: BIKE_ICON,
+        count: station.mechanicalBikesAvailable,
+        color: MECHANICAL_COLOR,
+        available: station.isRenting
+      },
+      {
+        icon: DOCK_ICON,
+        count: station.docksAvailable,
+        color: DOCKS_COLOR,
+        available: station.isReturning
+      }
+    ]
 
-    let headsignClippingStart = routeWidth + 3
-    let headsignClippingEnd = this.width - timeWidth - 2
-    if (trip.isRealtime) headsignClippingEnd -= 8
+    const countWidth = this.font.measureText("00")
+    const iconBottomY = yOffset + this.font.getAscender() - 1
 
-    const headsignMaxWidth = headsignClippingEnd - headsignClippingStart
-    const headsignActualWidth = this.font.measureText(trip.headsign)
-    return Math.max(0, headsignActualWidth - headsignMaxWidth)
-  }
+    let x = this.width
+    for (const group of groups) {
+      x -= countWidth
+      if (draw) {
+        const countColor = group.available && group.count > 0 ? COUNT_COLOR : UNAVAILABLE_COLOR
+        this.font.drawText(this.fb, x, yOffset, String(group.count), countColor)
+      }
 
-  private drawTrip(
-    trip: Trip,
-    yOffset: number,
-    fontHeight: number,
-    uptime: number,
-    rtcNow: number,
-    scrollCycleDuration: number
-  ) {
-    // Route name (left-aligned)
-    this.font.drawText(this.fb, 0, yOffset, trip.routeName, trip.routeColor)
-    const routeWidth = this.font.measureText(trip.routeName)
-
-    // Time display (right-aligned)
-    const timeText = formatDurationFromNow(
-      this.displayDepartureTimes ? trip.departureTime : trip.arrivalTime,
-      rtcNow,
-      this.unitDisplay
-    )
-    const timeWidth = this.font.measureText(timeText)
-    const timeColor = trip.isRealtime ? this.realtimeColor : { r: 0xa7, g: 0xa7, b: 0xa7 }
-    this.font.drawText(this.fb, this.width + 1 - timeWidth, yOffset, timeText, timeColor)
-
-    // Headsign clipping bounds
-    const headsignClippingStart = routeWidth + 3
-    let headsignClippingEnd = this.width - timeWidth - 2
-
-    // Realtime icon
-    if (trip.isRealtime) {
-      headsignClippingEnd -= 8
-      const iconBottomRightX = this.width - timeWidth - 2
-      const iconBottomRightY = yOffset + fontHeight - 6
-      drawRealtimeIcon(
-        this.fb,
-        iconBottomRightX,
-        iconBottomRightY,
-        uptime,
-        this.realtimeColor,
-        this.realtimeColorDark
-      )
+      x -= ICON_COUNT_GAP + group.icon[0].length
+      if (draw) {
+        drawIcon(
+          this.fb,
+          group.icon,
+          x,
+          iconBottomY,
+          group.available ? group.color : UNAVAILABLE_COLOR,
+          group.available ? BOLT_COLOR : UNAVAILABLE_COLOR
+        )
+      }
+      x -= GROUP_GAP
     }
 
-    // Headsign with scroll
-    const headsignMaxWidth = headsignClippingEnd - headsignClippingStart
-    const headsignActualWidth = this.font.measureText(trip.headsign)
-    const headsignOverflow = headsignActualWidth - headsignMaxWidth
+    return x
+  }
+
+  private drawStation(
+    station: Station,
+    yOffset: number,
+    uptime: number,
+    scrollCycleDuration: number
+  ) {
+    const nameClippingEnd = this.drawCounts(station, yOffset, true)
+    const nameOverflow = this.font.measureText(station.name) - nameClippingEnd
 
     let scrollOffset = 0
-    if (headsignOverflow > 0 && scrollCycleDuration > 0) {
-      const scrollTime = Math.floor((headsignOverflow * 1000) / SCROLL_SPEED)
+    if (nameOverflow > 0 && scrollCycleDuration > 0) {
+      const scrollTime = Math.floor((nameOverflow * 1000) / SCROLL_SPEED)
       const scrollCycleTime = uptime % scrollCycleDuration
 
       if (scrollCycleTime < IDLE_TIME_LEFT) {
@@ -540,20 +482,17 @@ export class TransitTrackerSimulator {
         scrollOffset = Math.floor((timeSinceStart * SCROLL_SPEED) / 1000)
       } else if (scrollCycleTime < IDLE_TIME_LEFT + scrollTime + IDLE_TIME_RIGHT) {
         // Idle right
-        scrollOffset = headsignOverflow
+        scrollOffset = nameOverflow
       } else if (scrollCycleTime < IDLE_TIME_LEFT + 2 * scrollTime + IDLE_TIME_RIGHT) {
         // Scrolling right
         const timeSinceStart = scrollCycleTime - (IDLE_TIME_LEFT + scrollTime + IDLE_TIME_RIGHT)
-        scrollOffset = headsignOverflow - Math.floor((timeSinceStart * SCROLL_SPEED) / 1000)
+        scrollOffset = nameOverflow - Math.floor((timeSinceStart * SCROLL_SPEED) / 1000)
       }
     }
 
-    this.fb.startClipping(headsignClippingStart, 0, headsignClippingEnd, this.height)
-    this.font.drawText(this.fb, headsignClippingStart - scrollOffset, yOffset, trip.headsign, {
-      r: 0xff,
-      g: 0xff,
-      b: 0xff
-    })
+    const nameColor = station.isRenting || station.isReturning ? COUNT_COLOR : UNAVAILABLE_COLOR
+    this.fb.startClipping(0, 0, nameClippingEnd, this.height)
+    this.font.drawText(this.fb, -scrollOffset, yOffset, station.name, nameColor)
     this.fb.endClipping()
   }
 }

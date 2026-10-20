@@ -11,7 +11,7 @@
 <Card.Root class="w-xl">
   <Card.Header>
     <Card.Title>Change Wi-Fi</Card.Title>
-    <Card.Description>Change the Wi-Fi network your Transit Tracker connects to.</Card.Description>
+    <Card.Description>Change the Wi-Fi network your Bike Tracker connects to.</Card.Description>
   </Card.Header>
   <Card.Content>
     <ConnectWiFi
