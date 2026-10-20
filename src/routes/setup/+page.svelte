@@ -22,7 +22,7 @@
 <Card.Root class="w-xl">
   <Card.Header>
     <Card.Title>Initial setup</Card.Title>
-    <Card.Description>Let's set up your new Transit Tracker!</Card.Description>
+    <Card.Description>Let's set up your new Bike Tracker!</Card.Description>
   </Card.Header>
   <Card.Content>
     <Tabs.Root value={step}>
@@ -42,8 +42,8 @@
       </Tabs.List>
       <Tabs.Content value="firmware">
         <p>
-          If this is the first time setting up your Transit Tracker, you'll first need to perform
-          the following steps:
+          If this is the first time setting up your Bike Tracker, you'll first need to perform the
+          following steps:
         </p>
 
         <ol class="my-3 ml-6 list-decimal">
@@ -77,8 +77,8 @@
         </div>
 
         <p class="mt-2 leading-6">
-          Your Transit Tracker is now set up and ready to configure. Click the button below to set
-          your routes and customizations.
+          Your Bike Tracker is now set up and ready to configure. Click the button below to set your
+          stations and customizations.
         </p>
 
         <Button class="mt-4 w-full" href="/configure">

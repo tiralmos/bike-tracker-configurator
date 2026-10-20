@@ -8,7 +8,7 @@
 </script>
 
 <svelte:head>
-  <title>Transit Tracker Configurator</title>
+  <title>Bike Tracker Configurator</title>
 </svelte:head>
 
 <ModeWatcher />

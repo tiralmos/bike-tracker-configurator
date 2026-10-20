@@ -2,20 +2,12 @@ import { writable } from "svelte/store"
 import { defaultBaseUrl } from "./config"
 import type { FakeDeviceOptions } from "./device/fake-device"
 
-export interface RouteAtStop {
-  stopId: string
-  stopCode: string | null
-  stopName: string
-  routeId: string
-  routeName: string
-  headsigns: string[]
-  color: string | null
-}
-
-export interface RouteStyle {
-  routeId: string
+export interface SelectedStation {
+  stationId: string
+  /** The station's name in the bike-share feed */
   name: string
-  color: string
+  /** Shown on the display instead of the station's name, if set */
+  customName: string
 }
 
 export interface Feed {
@@ -30,50 +22,13 @@ export interface Abbreviation {
   to: string
 }
 
-export interface Localization {
-  now: string
-  minLong: string
-  minShort: string
-  hoursShort: string
-}
-
 export interface ConfigState {
   apiBaseUrl: string
-  routes: RouteAtStop[]
-  routeStyles: RouteStyle[]
+  stations: SelectedStation[]
   headerText: string
   abbreviations: Abbreviation[]
-  stopTimeOffsets: Record<string, number>
-  timeDisplay: "arrival" | "departure"
-  timeUnits: "long" | "short" | "none"
-  listMode: "sequential" | "nextPerRoute"
   displayOrientation: "normal" | "flipped"
-  headsignOverflow: "hidden" | "scroll"
-  localization: Localization
-}
-
-function toGlobalId(feedCode: string, localId: string): string {
-  return `${feedCode}:${localId}`
-}
-
-function migrateFeedCodeToGlobalIds(config: ConfigState & { feed?: Feed }): ConfigState {
-  if (!config.feed) return config
-
-  const feedCode = config.feed.code
-  delete config.feed
-
-  return {
-    ...config,
-    routes: config.routes.map((route) => ({
-      ...route,
-      stopId: toGlobalId(feedCode, route.stopId),
-      routeId: toGlobalId(feedCode, route.routeId)
-    })),
-    routeStyles: config.routeStyles.map((style) => ({
-      ...style,
-      routeId: toGlobalId(feedCode, style.routeId)
-    }))
-  }
+  nameOverflow: "hidden" | "scroll"
 }
 
 function migrateBaseUrlToHttp(config: ConfigState): ConfigState {
@@ -126,29 +81,23 @@ export function getWebSocketEndpoint(baseUrl: string) {
 }
 
 export const config = createPersistentStore<ConfigState>(
-  "config",
+  "bikeTrackerConfig",
   {
     apiBaseUrl: defaultBaseUrl,
-    routes: [],
-    routeStyles: [],
+    stations: [],
     headerText: "",
     abbreviations: [],
-    stopTimeOffsets: {},
-    timeDisplay: "arrival",
-    timeUnits: "long",
-    listMode: "sequential",
     displayOrientation: "normal",
-    headsignOverflow: "hidden",
-    localization: {
-      now: "Now",
-      minLong: "min",
-      minShort: "m",
-      hoursShort: "h"
-    }
+    nameOverflow: "scroll"
   },
-  migrateFeedCodeToGlobalIds,
   migrateBaseUrlToHttp
 )
+
+/** The API runs on this computer, so the display (on the network) cannot reach it at this address. */
+export function isLoopbackUrl(baseUrl: string) {
+  const { hostname } = new URL(baseUrl)
+  return hostname === "localhost" || hostname === "[::1]" || hostname.startsWith("127.")
+}
 
 export interface DeviceConnection {
   type: "network" | "usb" | "none" | "fake"

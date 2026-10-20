@@ -70,8 +70,8 @@
     <Dialog.Header>
       <Dialog.Title>No port selected</Dialog.Title>
       <p>
-        No device was selected from the list. If your Transit Tracker isn't showing up in the list
-        of devices, follow these tips.
+        No device was selected from the list. If your Bike Tracker isn't showing up in the list of
+        devices, follow these tips.
       </p>
 
       <ul class="my-6 ml-6 list-disc [&>li]:mt-2">

@@ -1,29 +1,22 @@
 <script lang="ts">
   import * as RadioGroup from "../../ui/radio-group"
   import { Label } from "../../ui/label"
-  import { config, type Localization } from "$lib/state"
+  import { config } from "$lib/state"
   import { Button } from "../../ui/button"
   import { ClipboardCopy, ClipboardPaste, Pencil } from "@lucide/svelte"
   import ChangeHostDialog from "./ChangeHostDialog.svelte"
   import * as Dialog from "$lib/components/ui/dialog"
-  import LocalizationOptions from "./LocalizationOptions.svelte"
   import { toast } from "svelte-sonner"
 
   let showChangeHostDialog = $state(false)
 
   function saveApiBaseUrl(newUrl: string) {
     if ($config.apiBaseUrl !== newUrl) {
-      $config.routes = []
-      $config.routeStyles = []
-      $config.stopTimeOffsets = {}
+      $config.stations = []
     }
 
     $config.apiBaseUrl = newUrl
     showChangeHostDialog = false
-  }
-
-  function saveLocalization(localization: Localization) {
-    $config.localization = localization
   }
 
   async function copyConfig() {
@@ -62,7 +55,7 @@
       <Dialog.Title>Change API server</Dialog.Title>
       <Dialog.Description>
         <span class="font-bold text-orange-500 dark:text-yellow-500">Warning</span>: Changing the
-        API server will clear selected stops and routes.
+        API server will clear selected stations.
       </Dialog.Description>
     </Dialog.Header>
 
@@ -72,17 +65,12 @@
 
 <div class="mb-5">
   <h4 class="scroll-m-20 text-xl font-semibold tracking-tight">API Server</h4>
-  <div class="mb-1 text-sm italic text-muted-foreground">
-    See also:
-    <a href="https://transit-tracker.eastsideurbanism.org/docs/advanced/api-server" target="_blank"
-      >API Server Documentation</a
-    >
-  </div>
-
   <div class="mb-2 text-sm text-muted-foreground">
-    You can switch the API server your Transit Tracker uses in order to track routes from other
-    transit agencies.
+    The Bike Tracker API server running on your computer. Use your computer's address on your
+    network (for example <code>http://192.168.1.10:3000</code>), not <code>localhost</code>, so that
+    your display can reach it too.
   </div>
+  <div class="mb-2 text-sm">Currently: <code>{$config.apiBaseUrl}</code></div>
 
   <Button size="sm" variant="secondary" onclick={() => (showChangeHostDialog = true)}>
     <Pencil />
@@ -108,15 +96,6 @@
       <Label for="flipped">Flipped &mdash; USB port on the left</Label>
     </div>
   </RadioGroup.Root>
-</div>
-
-<div class="mb-5">
-  <h4 class="scroll-m-20 text-xl font-semibold tracking-tight">Localization</h4>
-  <div class="mb-3 flex flex-col text-sm text-muted-foreground">
-    Change the text used for time units and "Now" on the display.
-  </div>
-
-  <LocalizationOptions configState={$config} onsave={saveLocalization} />
 </div>
 
 <div class="mb-5">

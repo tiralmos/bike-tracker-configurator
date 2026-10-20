@@ -6,40 +6,14 @@
   import { ClipboardCopy } from "@lucide/svelte"
 
   function generateYaml() {
-    const distinctColorsUsed = new Set($config.routeStyles.map((s) => s.color.replaceAll("#", "")))
-    const routesGroupedByStop = Map.groupBy($config.routes, (r) => r.stopId).values()
-
     const generatedConfig = {
-      ...(distinctColorsUsed.size > 0
-        ? {
-            color: distinctColorsUsed
-              .values()
-              .map((c) => ({
-                id: `c_${c}`,
-                hex: c
-              }))
-              .toArray()
-          }
-        : {}),
-      transit_tracker: {
+      bike_tracker: {
         base_url: getWebSocketEndpoint($config.apiBaseUrl),
-        time_display: $config.timeDisplay,
-        show_units: $config.timeUnits,
-        list_mode: $config.listMode,
-        scroll_headsigns: $config.headsignOverflow === "scroll",
-        stops: routesGroupedByStop
-          .map((routes) => ({
-            stop_id: routes[0].stopId,
-            time_offset: $config.stopTimeOffsets[routes[0].stopId]
-              ? `-${$config.stopTimeOffsets[routes[0].stopId]}min`
-              : undefined,
-            routes: routes.map((r) => r.routeId)
-          }))
-          .toArray(),
-        styles: $config.routeStyles.map((s) => ({
-          route_id: s.routeId,
-          name: s.name,
-          color: `c_${s.color.replaceAll("#", "")}`
+        scroll_station_names: $config.nameOverflow === "scroll",
+        ...($config.headerText ? { header_text: $config.headerText } : {}),
+        stations: $config.stations.map((s) => ({
+          station_id: s.stationId,
+          ...(s.customName.trim() ? { name: s.customName.trim() } : {})
         })),
         abbreviations: $config.abbreviations.map((a) => ({
           from: a.from,
