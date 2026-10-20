@@ -1,12 +1,7 @@
 import { getWebSocketEndpoint, type ConfigState } from "./state"
 import type { TransitTrackerDevice } from "./device/transit-tracker-device"
-import semver from "semver"
 
-async function* configRequestGenerator(
-  device: TransitTrackerDevice,
-  config: ConfigState,
-  projectVersion: string | null
-) {
+async function* configRequestGenerator(device: TransitTrackerDevice, config: ConfigState) {
   yield device.setTextEntity("base_url_config", getWebSocketEndpoint(config.apiBaseUrl))
 
   yield device.setTextEntity("feed_code_config", "")
@@ -35,13 +30,6 @@ async function* configRequestGenerator(
       .join("\n")
   )
 
-  if (!projectVersion || semver.lt(projectVersion, "2.7.0")) {
-    yield device.setSwitchEntity(
-      "flip_display",
-      config.displayOrientation === "flipped" ? "ON" : "OFF"
-    )
-  }
-
   yield device.setSwitchEntity(
     "scroll_station_names",
     config.nameOverflow === "scroll" ? "ON" : "OFF"
@@ -52,9 +40,8 @@ export async function pushConfigToDevice(config: ConfigState, device: TransitTra
   const results = []
 
   const deviceVersion = await device.getProjectVersion()
-  const normalizedVersion = deviceVersion === "dev" ? "999.0.0" : deviceVersion
 
-  const configRequests = configRequestGenerator(device, config, normalizedVersion)
+  const configRequests = configRequestGenerator(device, config)
   for await (const result of configRequests) {
     results.push(result)
   }

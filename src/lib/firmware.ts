@@ -8,10 +8,23 @@ export const FIRMWARE_FACTORY_BIN_URL = "/firmware/firmware.factory.bin"
 
 const MANIFEST_URL = "/firmware/manifest.json"
 
+// Release tags are typed by hand, so accept loose forms like "v1.0.1",
+// "v.1.0.1" or "1.0" instead of throwing on anything that isn't strict semver.
+export function parseVersion(version: string): semver.SemVer | null {
+  return semver.coerce(version)
+}
+
 export function isUpdateAvailable(deviceVersion: string | null, latestVersion: string): boolean {
   if (deviceVersion === null) return true
   if (deviceVersion === "dev") return false
-  return semver.lt(deviceVersion, latestVersion)
+
+  const latest = parseVersion(latestVersion)
+  if (latest === null) return false
+
+  const current = parseVersion(deviceVersion)
+  if (current === null) return true
+
+  return semver.lt(current, latest)
 }
 
 export function releaseNotesUrl(version: string) {
