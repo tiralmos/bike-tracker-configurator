@@ -278,9 +278,9 @@ const EBIKE_ICON = [
 const ICON_COUNT_GAP = 1
 const GROUP_GAP = 3
 
-const DOCKS_COLOR = hexColor(0x2ecc40)
+const DOCKS_COLOR = hexColor(0x9a9a9a)
 const MECHANICAL_COLOR = hexColor(0xe2001a)
-const ELECTRIC_COLOR = hexColor(0x00a8ff)
+const ELECTRIC_COLOR = hexColor(0x2ecc40)
 const BOLT_COLOR = hexColor(0xffd200)
 const COUNT_COLOR = hexColor(0xffffff)
 const UNAVAILABLE_COLOR = hexColor(0x404040)
