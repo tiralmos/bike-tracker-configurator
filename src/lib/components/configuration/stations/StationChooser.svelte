@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleLayer, GeoJSON, MapLibre, type Map as MapLibreMap } from "svelte-maplibre"
+  import { CircleLayer, GeoJSON, MapLibre, Popup, type Map as MapLibreMap } from "svelte-maplibre"
   import type { ConfigState, SelectedStation } from "$lib/state"
   import * as Card from "$lib/components/ui/card"
   import { Button } from "$lib/components/ui/button"
@@ -29,7 +29,6 @@
   let loadError = $state("")
   let map: MapLibreMap | undefined = $state()
   let query = $state("")
-  let activeStation: StationListEntry | null = $state(null)
 
   let mapStyle = $derived($appearanceMode === "dark" ? "dark-matter-gl" : "positron-gl")
   let rows = $derived(rowsOnDisplay(config.headerText))
@@ -100,7 +99,6 @@
   function pickSearchResult(station: StationListEntry) {
     query = ""
     addStation(station)
-    activeStation = station
     map?.flyTo({ center: [station.lon, station.lat], zoom: 16, animate: false })
   }
 
@@ -235,25 +233,27 @@
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1.5
         }}
-        onclick={(e) => {
-          const stationId = e.features[0]?.properties?.stationId
-          activeStation = allStations.find((s) => s.stationId === stationId) ?? null
-        }}
-      />
+      >
+        <!-- The popup must live inside the layer: svelte-maplibre only renders
+             popup content for a clicked feature or a marker. -->
+        <Popup openOn="click" popupClass="p-0">
+          {#snippet children({ data })}
+            {@const station = allStations.find((s) => s.stationId === data?.properties?.stationId)}
+            {#if station}
+              {#key station.stationId}
+                <StationPopup
+                  {station}
+                  selected={isSelected(station.stationId)}
+                  disabled={selected.length >= MAX_STATIONS}
+                  onadd={addStation}
+                  onremove={(station) => removeStation(station.stationId)}
+                />
+              {/key}
+            {/if}
+          {/snippet}
+        </Popup>
+      </CircleLayer>
     </GeoJSON>
-
-    {#if activeStation}
-      {#key activeStation.stationId}
-        <StationPopup
-          station={activeStation}
-          selected={isSelected(activeStation.stationId)}
-          disabled={selected.length >= MAX_STATIONS}
-          onadd={addStation}
-          onremove={(station) => removeStation(station.stationId)}
-          onclose={() => (activeStation = null)}
-        />
-      {/key}
-    {/if}
 
     {#if loadState === "loading"}
       <div
