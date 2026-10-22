@@ -30,6 +30,16 @@ interface JsonRpcResponse {
   }
 }
 
+export class JsonRpcError extends Error {
+  constructor(
+    message: string,
+    readonly code: number
+  ) {
+    super(`JSON-RPC error: ${message} (${code})`)
+    this.name = "JsonRpcError"
+  }
+}
+
 // Device info response
 export interface DeviceInfo {
   name: string
@@ -570,9 +580,7 @@ export class ESPHomeRpcClient extends EventTarget {
               const { resolve, reject } = this.pendingRequests.get(response.id)!
 
               if (response.error) {
-                reject(
-                  new Error(`JSON-RPC error: ${response.error.message} (${response.error.code})`)
-                )
+                reject(new JsonRpcError(response.error.message, response.error.code))
               } else {
                 resolve(response)
               }

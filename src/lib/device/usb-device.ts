@@ -1,6 +1,12 @@
-import { ConfigValidationError, type TransitTrackerDevice } from "./transit-tracker-device"
-import { ESPHomeRpcClient } from "$lib/esphome-rpc"
+import {
+  ConfigValidationError,
+  type SetEntityResult,
+  type TransitTrackerDevice
+} from "./transit-tracker-device"
+import { ESPHomeRpcClient, JsonRpcError } from "$lib/esphome-rpc"
 import type { SerialContext } from "$lib/serial-context"
+
+const INVALID_PARAMS = -32602
 
 export class UsbTransitTrackerDevice implements TransitTrackerDevice {
   private static instance: UsbTransitTrackerDevice | null = null
@@ -49,26 +55,37 @@ export class UsbTransitTrackerDevice implements TransitTrackerDevice {
     }
 
     await this.initializeRpc()
-    const ok = await this.rpc!.setTextEntity(id, value)
-    return { name: id, ok }
+    return this.call(id, () => this.rpc!.setTextEntity(id, value))
   }
 
   async setSelectEntity(id: string, value: string) {
     await this.initializeRpc()
-    const ok = await this.rpc!.setSelectEntity(id, value)
-    return { name: id, ok }
+    return this.call(id, () => this.rpc!.setSelectEntity(id, value))
   }
 
   async setSwitchEntity(id: string, value: "ON" | "OFF") {
     await this.initializeRpc()
-    const ok = await this.rpc!.setSwitchEntity(id, value)
-    return { name: id, ok }
+    return this.call(id, () => this.rpc!.setSwitchEntity(id, value))
   }
 
   async pressButton(id: string) {
     await this.initializeRpc()
-    const ok = await this.rpc!.pressButton(id)
-    return { name: id, ok }
+    return this.call(id, () => this.rpc!.pressButton(id))
+  }
+
+  // Firmware that lacks an entity answers with "Entity not found" (or
+  // "Button not found"). Report it as a failed result instead of aborting
+  // so the rest of the config still gets applied.
+  private async call(id: string, fn: () => Promise<boolean>): Promise<SetEntityResult> {
+    try {
+      return { name: id, ok: await fn() }
+    } catch (e) {
+      if (e instanceof JsonRpcError && e.code === INVALID_PARAMS) {
+        console.warn(`Device has no entity "${id}":`, e.message)
+        return { name: id, ok: false }
+      }
+      throw e
+    }
   }
 
   private async initializeRpc() {

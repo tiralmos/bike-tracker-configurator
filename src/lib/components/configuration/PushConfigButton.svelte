@@ -54,10 +54,10 @@
     try {
       const { results, deviceVersion } = await pushConfigToDevice($config, device)
 
-      const errors = results.filter((result) => !result)
+      const errors = results.filter((result) => !result.ok)
       if (errors.length > 0) {
         toast.warning("Unable to push full config", {
-          description: "Your Bike Tracker may need a firmware update.",
+          description: `Your display is missing these settings: ${errors.map((e) => e.name).join(", ")}. It is probably running older or original Transit Tracker firmware: update it, or flash it again from Initial setup.`,
           duration: 10000,
           action: {
             label: "Update Firmware",
