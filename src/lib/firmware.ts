@@ -1,7 +1,7 @@
 import semver from "semver"
 
 // Served by the configurator itself: its Docker image downloads the
-// latest firmware release of tiralmos/bike-tracker into /firmware.
+// latest firmware release of tiralmos/transit-tracker-lyon-firmware into /firmware.
 export const FIRMWARE_BIN_URL = "/firmware/firmware.ota.bin"
 
 export const FIRMWARE_FACTORY_BIN_URL = "/firmware/firmware.factory.bin"
@@ -28,7 +28,7 @@ export function isUpdateAvailable(deviceVersion: string | null, latestVersion: s
 }
 
 export function releaseNotesUrl(version: string) {
-  return `https://github.com/tiralmos/bike-tracker/releases/tag/${version}`
+  return `https://github.com/tiralmos/transit-tracker-lyon-firmware/releases/tag/${version}`
 }
 
 export async function getLatestFirmwareVersion(): Promise<string> {

@@ -40,11 +40,17 @@
 
 <Card.Root>
   <Card.Header>
-    <Card.Title>Bike Tracker Configurator</Card.Title>
+    <Card.Title>Transit Tracker Configurator</Card.Title>
     <Card.Description>Welcome! What would you like to do?</Card.Description>
   </Card.Header>
   <Card.Content class="grid grid-cols-2 gap-4">
-    {@render cardLink("Initial setup", "Set up a new Bike Tracker", "/setup", WandSparkles, true)}
+    {@render cardLink(
+      "Initial setup",
+      "Set up a new Transit Tracker",
+      "/setup",
+      WandSparkles,
+      true
+    )}
     {@render cardLink(
       "Update firmware",
       "Install the latest firmware",
@@ -53,12 +59,7 @@
       true
     )}
     {@render cardLink("Change Wi-Fi", "Connect to a different Wi-Fi network", "/wifi", Wifi, true)}
-    {@render cardLink(
-      "Configure",
-      "Choose stations and customizations",
-      "/configure/stations",
-      Wrench
-    )}
+    {@render cardLink("Configure", "Choose rows and customizations", "/configure/rows", Wrench)}
   </Card.Content>
 </Card.Root>
 
@@ -71,7 +72,7 @@
       <Dialog.Title>Unsupported browser</Dialog.Title>
       <p class="leading-6">
         Setup is only supported on Chromium-based browsers since Firefox and Safari do not support
-        Web Serial which is required to connect to your Bike Tracker.
+        Web Serial which is required to connect to your Transit Tracker.
       </p>
 
       <p class="leading-6">

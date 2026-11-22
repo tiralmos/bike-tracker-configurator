@@ -36,7 +36,7 @@
   async function beginFlash() {
     flashing = true
     progress = 0
-    statusMessage = "Connecting to Bike Tracker..."
+    statusMessage = "Connecting to Transit Tracker..."
 
     try {
       port = await ctx.getSerialPort(bootButtonRequired)
@@ -124,7 +124,7 @@
 </script>
 
 <p class="mb-4 leading-6">
-  Connect your Bike Tracker to this computer via USB and press the button below to flash the
+  Connect your Transit Tracker to this computer via USB and press the button below to flash the
   firmware.
 </p>
 

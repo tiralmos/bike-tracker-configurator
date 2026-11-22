@@ -10,6 +10,42 @@ export interface Station {
   isReturning: boolean
 }
 
+export interface Trip {
+  routeName: string
+  routeColor: Color
+  headsign: string
+  arrivalTime: number
+  departureTime: number
+  isRealtime: boolean
+}
+
+/** One row on the display, drawn like the firmware draws it. */
+export type SimulatorRow =
+  | {
+      kind: "transit"
+      /** Shown when there is no upcoming trip */
+      routeName: string
+      routeColor: Color
+      /** Replaces the trip's destination, if set */
+      customName?: string
+      trip: Trip | null
+    }
+  | {
+      kind: "bike"
+      /** Station name, or the row's custom name */
+      name: string
+      station: Station | null
+    }
+
+export type UnitDisplay = "long" | "short" | "none"
+
+export interface TimeStrings {
+  now: string
+  minLong: string
+  minShort: string
+  hoursShort: string
+}
+
 export interface Color {
   r: number
   g: number
@@ -25,7 +61,11 @@ export interface SimulatorOptions {
   brightness?: number
   limit?: number
   headerText?: string
-  scrollStationNames?: boolean
+  scrollNames?: boolean
+  unitDisplay?: UnitDisplay
+  displayDepartureTimes?: boolean
+  timeStrings?: TimeStrings
+  realtimeColor?: Color
 }
 
 function colorToCSS(c: Color): string {
@@ -303,11 +343,119 @@ function drawIcon(
   })
 }
 
-export class BikeTrackerSimulator {
+const DEFAULT_TIME_STRINGS: TimeStrings = {
+  now: "Now",
+  minLong: "min",
+  minShort: "m",
+  hoursShort: "h"
+}
+
+/** Same output as the firmware's Localization::fmt_duration_from_now */
+export function formatDurationFromNow(
+  unixTimestamp: number,
+  rtcNow: number,
+  unitDisplay: UnitDisplay,
+  strings: TimeStrings = DEFAULT_TIME_STRINGS
+): string {
+  const diff = unixTimestamp - rtcNow
+  if (diff < 30) return strings.now
+
+  const minutes = diff < 60 ? 0 : Math.floor(diff / 60)
+  if (minutes < 60) {
+    switch (unitDisplay) {
+      case "long":
+        return `${minutes}${strings.minLong}`
+      case "short":
+        return `${minutes}${strings.minShort}`
+      default:
+        return `${minutes}`
+    }
+  }
+
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  if (unitDisplay === "none") return `${hours}:${String(remainingMinutes).padStart(2, "0")}`
+  return `${hours}${strings.hoursShort}${remainingMinutes}${strings.minShort}`
+}
+
+const REALTIME_ICON: number[][] = [
+  [0, 0, 0, 3, 3, 3],
+  [0, 0, 3, 0, 0, 0],
+  [0, 3, 0, 0, 2, 2],
+  [3, 0, 0, 2, 0, 0],
+  [3, 0, 2, 0, 0, 1],
+  [3, 0, 2, 0, 1, 1]
+]
+
+function drawRealtimeIcon(
+  fb: PixelFramebuffer,
+  bottomRightX: number,
+  bottomRightY: number,
+  uptime: number,
+  realtimeColor: Color,
+  realtimeColorDark: Color
+) {
+  const numFrames = 6
+  const idleFrameDuration = 3000
+  const animFrameDuration = 200
+  const cycleDuration = idleFrameDuration + (numFrames - 1) * animFrameDuration
+
+  const cycleTime = uptime % cycleDuration
+  const frame =
+    cycleTime < idleFrameDuration
+      ? 0
+      : 1 + Math.floor((cycleTime - idleFrameDuration) / animFrameDuration)
+
+  const isSegmentLit = (segment: number): boolean => {
+    switch (segment) {
+      case 1:
+        return frame >= 1 && frame <= 3
+      case 2:
+        return frame >= 2 && frame <= 4
+      case 3:
+        return frame >= 3 && frame <= 5
+      default:
+        return false
+    }
+  }
+
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 6; j++) {
+      const segment = REALTIME_ICON[i][j]
+      if (segment === 0) continue
+      const color = isSegmentLit(segment) ? realtimeColor : realtimeColorDark
+      fb.drawPixel(bottomRightX - (5 - j), bottomRightY - (5 - i), color)
+    }
+  }
+}
+
+function scrollOffsetAt(overflow: number, uptime: number, scrollCycleDuration: number) {
+  if (overflow <= 0 || scrollCycleDuration <= 0) return 0
+
+  const scrollTime = Math.floor((overflow * 1000) / SCROLL_SPEED)
+  const t = uptime % scrollCycleDuration
+
+  if (t < IDLE_TIME_LEFT) return 0
+  if (t < IDLE_TIME_LEFT + scrollTime) {
+    return Math.floor(((t - IDLE_TIME_LEFT) * SCROLL_SPEED) / 1000)
+  }
+  if (t < IDLE_TIME_LEFT + scrollTime + IDLE_TIME_RIGHT) return overflow
+  if (t < IDLE_TIME_LEFT + 2 * scrollTime + IDLE_TIME_RIGHT) {
+    const sinceStart = t - (IDLE_TIME_LEFT + scrollTime + IDLE_TIME_RIGHT)
+    return overflow - Math.floor((sinceStart * SCROLL_SPEED) / 1000)
+  }
+  return 0
+}
+
+const WHITE = hexColor(0xffffff)
+const SCHEDULED_TIME_COLOR = hexColor(0xa7a7a7)
+
+/** Draws transit and bike-share rows the same way the firmware does. */
+export class TrackerSimulator {
   private fb: PixelFramebuffer
   private renderer: CanvasRenderer
   private font = new BitmapFont()
-  private stations: Station[] = []
+  private rows: SimulatorRow[] = []
   private animationId: number | null = null
   private startTime = 0
 
@@ -315,14 +463,28 @@ export class BikeTrackerSimulator {
   private height: number
   private limit: number
   private headerText: string
-  private scrollStationNames: boolean
+  private scrollNames: boolean
+  private unitDisplay: UnitDisplay
+  private displayDepartureTimes: boolean
+  private timeStrings: TimeStrings
+  private realtimeColor: Color
+  private realtimeColorDark: Color
 
   constructor(canvas: HTMLCanvasElement, options: SimulatorOptions = {}) {
     this.width = options.width ?? 128
     this.height = options.height ?? 32
     this.limit = options.limit ?? 3
     this.headerText = options.headerText ?? ""
-    this.scrollStationNames = options.scrollStationNames ?? true
+    this.scrollNames = options.scrollNames ?? true
+    this.unitDisplay = options.unitDisplay ?? "long"
+    this.displayDepartureTimes = options.displayDepartureTimes ?? true
+    this.timeStrings = options.timeStrings ?? DEFAULT_TIME_STRINGS
+    this.realtimeColor = options.realtimeColor ?? { r: 0x20, g: 0xff, b: 0x00 }
+    this.realtimeColorDark = {
+      r: Math.floor(this.realtimeColor.r * 0.5),
+      g: Math.floor(this.realtimeColor.g * 0.5),
+      b: Math.floor(this.realtimeColor.b * 0.5)
+    }
 
     this.fb = new PixelFramebuffer(this.width, this.height)
     this.renderer = new CanvasRenderer(
@@ -336,8 +498,8 @@ export class BikeTrackerSimulator {
     )
   }
 
-  setStations(stations: Station[]) {
-    this.stations = stations
+  setRows(rows: SimulatorRow[]) {
+    this.rows = rows
   }
 
   start() {
@@ -357,34 +519,36 @@ export class BikeTrackerSimulator {
     }
   }
 
+  private drawCentered(msg: string) {
+    const textWidth = this.font.measureText(msg)
+    const x = Math.floor((this.width - textWidth) / 2)
+    const y = Math.floor((this.height - (this.font.getAscender() + this.font.getDescender())) / 2)
+    this.font.drawText(this.fb, x, y, msg, { r: 150, g: 150, b: 150 })
+  }
+
   private drawFrame() {
     this.fb.clear()
 
-    if (this.stations.length === 0) {
-      const msg = "No stations selected"
-      const color = { r: 150, g: 150, b: 150 }
-      const textWidth = this.font.measureText(msg)
-      const x = Math.floor((this.width - textWidth) / 2)
-      const y = Math.floor((this.height - (this.font.getAscender() + this.font.getDescender())) / 2)
-      this.font.drawText(this.fb, x, y, msg, color)
+    if (this.rows.length === 0) {
+      this.drawCentered("No rows configured")
       this.renderer.render(this.fb)
       return
     }
 
     const uptime = performance.now() - this.startTime
+    const rtcNow = Math.floor(Date.now() / 1000)
     const fontAscender = this.font.getAscender()
     const fontDescender = this.font.getDescender()
     const nominalFontHeight = fontAscender + fontDescender
-    // The header text takes the place of one station row
-    const stations = this.stations.slice(0, this.headerText ? this.limit - 1 : this.limit)
+    // The header text takes the place of one row
+    const rows = this.rows.slice(0, this.headerText ? this.limit - 1 : this.limit)
 
-    // Two-pass name overflow measurement for synchronized scrolling
+    // Every name scrolls in step, so the cycle lasts as long as the longest one needs
     let scrollCycleDuration = 0
-    if (this.scrollStationNames) {
+    if (this.scrollNames) {
       let largestOverflow = 0
-      for (const station of stations) {
-        const overflow = this.font.measureText(station.name) - this.drawCounts(station, 0, false)
-        largestOverflow = Math.max(largestOverflow, overflow)
+      for (const row of rows) {
+        largestOverflow = Math.max(largestOverflow, this.drawRow(row, 0, uptime, rtcNow, 0, false))
       }
       if (largestOverflow > 0) {
         const longestScrollTime = Math.floor((largestOverflow * 1000) / SCROLL_SPEED)
@@ -401,34 +565,117 @@ export class BikeTrackerSimulator {
       yOffset += nominalFontHeight
     }
 
-    for (const station of stations) {
-      this.drawStation(station, yOffset, uptime, scrollCycleDuration)
+    for (const row of rows) {
+      this.drawRow(row, yOffset, uptime, rtcNow, scrollCycleDuration, true)
       yOffset += nominalFontHeight
     }
 
     this.renderer.render(this.fb)
   }
 
-  /** Draws the icon and count groups and returns where the station name must end. */
-  private drawCounts(station: Station, yOffset: number, draw: boolean): number {
+  /** Returns how many pixels the row's name is too wide for. */
+  private drawRow(
+    row: SimulatorRow,
+    yOffset: number,
+    uptime: number,
+    rtcNow: number,
+    scrollCycleDuration: number,
+    draw: boolean
+  ): number {
+    return row.kind === "transit"
+      ? this.drawTransitRow(row, yOffset, uptime, rtcNow, scrollCycleDuration, draw)
+      : this.drawBikeRow(row, yOffset, uptime, scrollCycleDuration, draw)
+  }
+
+  private drawTransitRow(
+    row: Extract<SimulatorRow, { kind: "transit" }>,
+    yOffset: number,
+    uptime: number,
+    rtcNow: number,
+    scrollCycleDuration: number,
+    draw: boolean
+  ): number {
+    const fontHeight = this.font.getAscender() + this.font.getDescender()
+    const trip = row.trip
+    const routeName = trip?.routeName ?? row.routeName
+    const routeColor = trip?.routeColor ?? row.routeColor
+
+    const routeWidth = this.font.measureText(routeName)
+    if (draw) this.font.drawText(this.fb, 0, yOffset, routeName, routeColor)
+
+    const timeText = trip
+      ? formatDurationFromNow(
+          this.displayDepartureTimes ? trip.departureTime : trip.arrivalTime,
+          rtcNow,
+          this.unitDisplay,
+          this.timeStrings
+        )
+      : "--"
+    const timeWidth = this.font.measureText(timeText)
+    const isRealtime = trip?.isRealtime ?? false
+    if (draw) {
+      const timeColor = isRealtime ? this.realtimeColor : SCHEDULED_TIME_COLOR
+      this.font.drawText(this.fb, this.width + 1 - timeWidth, yOffset, timeText, timeColor)
+    }
+
+    const clipStart = routeWidth + 3
+    let clipEnd = this.width - timeWidth - 2
+    if (isRealtime) {
+      clipEnd -= 8
+      if (draw) {
+        drawRealtimeIcon(
+          this.fb,
+          this.width - timeWidth - 2,
+          yOffset + fontHeight - 6,
+          uptime,
+          this.realtimeColor,
+          this.realtimeColorDark
+        )
+      }
+    }
+
+    const name = row.customName || trip?.headsign || "No departures"
+    const nameColor = row.customName || trip ? WHITE : UNAVAILABLE_COLOR
+    const overflow = this.font.measureText(name) - (clipEnd - clipStart)
+
+    if (draw) {
+      const scrollOffset = scrollOffsetAt(overflow, uptime, scrollCycleDuration)
+      this.fb.startClipping(clipStart, 0, clipEnd, this.height)
+      this.font.drawText(this.fb, clipStart - scrollOffset, yOffset, name, nameColor)
+      this.fb.endClipping()
+    }
+    return overflow
+  }
+
+  private drawBikeRow(
+    row: Extract<SimulatorRow, { kind: "bike" }>,
+    yOffset: number,
+    uptime: number,
+    scrollCycleDuration: number,
+    draw: boolean
+  ): number {
+    const station = row.station
+    const isRenting = station?.isRenting ?? false
+    const isReturning = station?.isReturning ?? false
+
     const groups = [
       {
         icon: EBIKE_ICON,
-        count: station.electricBikesAvailable,
+        count: station?.electricBikesAvailable ?? 0,
         color: ELECTRIC_COLOR,
-        available: station.isRenting
+        available: isRenting
       },
       {
         icon: BIKE_ICON,
-        count: station.mechanicalBikesAvailable,
+        count: station?.mechanicalBikesAvailable ?? 0,
         color: MECHANICAL_COLOR,
-        available: station.isRenting
+        available: isRenting
       },
       {
         icon: DOCK_ICON,
-        count: station.docksAvailable,
+        count: station?.docksAvailable ?? 0,
         color: DOCKS_COLOR,
-        available: station.isReturning
+        available: isReturning
       }
     ]
 
@@ -440,7 +687,7 @@ export class BikeTrackerSimulator {
       x -= countWidth
       if (draw) {
         const countColor = group.available && group.count > 0 ? COUNT_COLOR : UNAVAILABLE_COLOR
-        this.font.drawText(this.fb, x, yOffset, String(group.count), countColor)
+        this.font.drawText(this.fb, x, yOffset, station ? String(group.count) : "-", countColor)
       }
 
       x -= ICON_COUNT_GAP + group.icon[0].length
@@ -457,42 +704,16 @@ export class BikeTrackerSimulator {
       x -= GROUP_GAP
     }
 
-    return x
-  }
+    const name = row.name || "Station not found"
+    const overflow = this.font.measureText(name) - x
 
-  private drawStation(
-    station: Station,
-    yOffset: number,
-    uptime: number,
-    scrollCycleDuration: number
-  ) {
-    const nameClippingEnd = this.drawCounts(station, yOffset, true)
-    const nameOverflow = this.font.measureText(station.name) - nameClippingEnd
-
-    let scrollOffset = 0
-    if (nameOverflow > 0 && scrollCycleDuration > 0) {
-      const scrollTime = Math.floor((nameOverflow * 1000) / SCROLL_SPEED)
-      const scrollCycleTime = uptime % scrollCycleDuration
-
-      if (scrollCycleTime < IDLE_TIME_LEFT) {
-        // Idle left
-      } else if (scrollCycleTime < IDLE_TIME_LEFT + scrollTime) {
-        // Scrolling left
-        const timeSinceStart = scrollCycleTime - IDLE_TIME_LEFT
-        scrollOffset = Math.floor((timeSinceStart * SCROLL_SPEED) / 1000)
-      } else if (scrollCycleTime < IDLE_TIME_LEFT + scrollTime + IDLE_TIME_RIGHT) {
-        // Idle right
-        scrollOffset = nameOverflow
-      } else if (scrollCycleTime < IDLE_TIME_LEFT + 2 * scrollTime + IDLE_TIME_RIGHT) {
-        // Scrolling right
-        const timeSinceStart = scrollCycleTime - (IDLE_TIME_LEFT + scrollTime + IDLE_TIME_RIGHT)
-        scrollOffset = nameOverflow - Math.floor((timeSinceStart * SCROLL_SPEED) / 1000)
-      }
+    if (draw) {
+      const scrollOffset = scrollOffsetAt(overflow, uptime, scrollCycleDuration)
+      const nameColor = isRenting || isReturning ? COUNT_COLOR : UNAVAILABLE_COLOR
+      this.fb.startClipping(0, 0, x, this.height)
+      this.font.drawText(this.fb, -scrollOffset, yOffset, name, nameColor)
+      this.fb.endClipping()
     }
-
-    const nameColor = station.isRenting || station.isReturning ? COUNT_COLOR : UNAVAILABLE_COLOR
-    this.fb.startClipping(0, 0, nameClippingEnd, this.height)
-    this.font.drawText(this.fb, -scrollOffset, yOffset, station.name, nameColor)
-    this.fb.endClipping()
+    return overflow
   }
 }

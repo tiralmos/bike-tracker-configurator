@@ -6,7 +6,7 @@
 
 set -u
 
-FIRMWARE_REPO="${FIRMWARE_REPO:-tiralmos/bike-tracker}"
+FIRMWARE_REPO="${FIRMWARE_REPO:-tiralmos/transit-tracker-lyon-firmware}"
 FIRMWARE_DIR=/usr/share/nginx/html/firmware
 TMP_DIR=$(mktemp -d)
 
