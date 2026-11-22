@@ -1,5 +1,5 @@
-# Self-hosted Bike Tracker Configurator. Serves the web UI and the latest
-# firmware release of tiralmos/bike-tracker (used by "Initial setup" and
+# Self-hosted Transit Tracker Lyon Configurator. Serves the web UI and the latest
+# firmware release of tiralmos/transit-tracker-lyon-firmware (used by "Initial setup" and
 # "Update firmware").
 
 FROM node:24-alpine AS build
@@ -21,7 +21,7 @@ RUN pnpm build
 
 FROM alpine:3.22 AS firmware
 
-ARG FIRMWARE_REPO=tiralmos/bike-tracker
+ARG FIRMWARE_REPO=tiralmos/transit-tracker-lyon-firmware
 RUN apk add --no-cache curl && mkdir /firmware
 WORKDIR /firmware
 RUN for file in manifest.json firmware.factory.bin firmware.ota.bin; do \
@@ -31,7 +31,7 @@ RUN for file in manifest.json firmware.factory.bin firmware.ota.bin; do \
 
 FROM nginx:1.29-alpine
 
-ARG FIRMWARE_REPO=tiralmos/bike-tracker
+ARG FIRMWARE_REPO=tiralmos/transit-tracker-lyon-firmware
 ENV FIRMWARE_REPO=${FIRMWARE_REPO}
 RUN apk add --no-cache curl
 

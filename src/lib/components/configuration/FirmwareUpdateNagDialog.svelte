@@ -25,7 +25,7 @@
     <Dialog.Header>
       <Dialog.Title>Firmware update available</Dialog.Title>
       <Dialog.Description
-        >Get the latest features and bug fixes for your Bike Tracker.</Dialog.Description
+        >Get the latest features and bug fixes for your Transit Tracker.</Dialog.Description
       >
     </Dialog.Header>
 
@@ -61,7 +61,7 @@
     {:else}
       <Button
         class="w-full"
-        href="https://github.com/tiralmos/bike-tracker/releases"
+        href="https://github.com/tiralmos/transit-tracker-lyon-firmware/releases"
         target="_blank"
       >
         Update firmware

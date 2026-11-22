@@ -2,12 +2,48 @@ import { writable } from "svelte/store"
 import { defaultBaseUrl } from "./config"
 import type { FakeDeviceOptions } from "./device/fake-device"
 
-export interface SelectedStation {
+/** A transit line at a stop: the row shows its next departure. */
+export interface TransitRow {
+  kind: "transit"
+  routeId: string
+  routeName: string
+  /** Hex color without "#", from the feed */
+  color: string | null
+  headsigns: string[]
+  stopId: string
+  stopCode: string | null
+  stopName: string
+  /** Shown on the display instead of the trip's destination, if set */
+  customName: string
+}
+
+/** A bike-share station: the row shows its free docks, bikes and e-bikes. */
+export interface BikeRow {
+  kind: "bike"
   stationId: string
   /** The station's name in the bike-share feed */
   name: string
   /** Shown on the display instead of the station's name, if set */
   customName: string
+}
+
+export type DisplayRow = TransitRow | BikeRow
+
+/** A line at a stop, as picked on the transit map. */
+export interface RouteAtStop {
+  stopId: string
+  stopCode: string | null
+  stopName: string
+  routeId: string
+  routeName: string
+  headsigns: string[]
+  color: string | null
+}
+
+export interface RouteStyle {
+  routeId: string
+  name: string
+  color: string
 }
 
 export interface Feed {
@@ -22,13 +58,43 @@ export interface Abbreviation {
   to: string
 }
 
+export interface Localization {
+  now: string
+  minLong: string
+  minShort: string
+  hoursShort: string
+}
+
 export interface ConfigState {
   apiBaseUrl: string
-  stations: SelectedStation[]
+  /** Top to bottom, as on the display */
+  rows: DisplayRow[]
+  routeStyles: RouteStyle[]
   headerText: string
   abbreviations: Abbreviation[]
+  /** Travel time to each stop in minutes, subtracted from its departure times */
+  stopTimeOffsets: Record<string, number>
+  timeDisplay: "arrival" | "departure"
+  timeUnits: "long" | "short" | "none"
   displayOrientation: "normal" | "flipped"
   nameOverflow: "hidden" | "scroll"
+  localization: Localization
+}
+
+/** Identifies a row on the device, e.g. in the row names setting. */
+export function rowId(row: DisplayRow) {
+  return row.kind === "transit" ? `${row.routeId},${row.stopId}` : row.stationId
+}
+
+export function rowKey(row: DisplayRow) {
+  return `${row.kind}:${rowId(row)}`
+}
+
+export function isSameRouteAtStop(
+  a: { routeId: string; stopId: string },
+  b: { routeId: string; stopId: string }
+) {
+  return a.routeId === b.routeId && a.stopId === b.stopId
 }
 
 function migrateBaseUrlToHttp(config: ConfigState): ConfigState {
@@ -80,16 +146,67 @@ export function getWebSocketEndpoint(baseUrl: string) {
   return url.href
 }
 
+const CONFIG_KEY = "transitTrackerLyonConfig"
+const BIKE_TRACKER_CONFIG_KEY = "bikeTrackerConfig"
+
+const defaultConfig: ConfigState = {
+  apiBaseUrl: defaultBaseUrl,
+  rows: [],
+  routeStyles: [],
+  headerText: "",
+  abbreviations: [],
+  stopTimeOffsets: {},
+  timeDisplay: "departure",
+  timeUnits: "long",
+  displayOrientation: "normal",
+  nameOverflow: "scroll",
+  localization: {
+    now: "Now",
+    minLong: "min",
+    minShort: "m",
+    hoursShort: "h"
+  }
+}
+
+/**
+ * The first time this configurator opens in a browser that used the
+ * bike-only configurator, start from its settings, with its stations as
+ * bike rows.
+ */
+function importBikeTrackerConfig() {
+  try {
+    if (localStorage.getItem(CONFIG_KEY) !== null) return
+    const stored = localStorage.getItem(BIKE_TRACKER_CONFIG_KEY)
+    if (stored === null) return
+
+    const old = JSON.parse(stored)
+    const imported: ConfigState = {
+      ...defaultConfig,
+      apiBaseUrl: old.apiBaseUrl ?? defaultConfig.apiBaseUrl,
+      headerText: old.headerText ?? "",
+      abbreviations: old.abbreviations ?? [],
+      displayOrientation: old.displayOrientation ?? "normal",
+      nameOverflow: old.nameOverflow ?? "scroll",
+      rows: (old.stations ?? []).map(
+        (station: { stationId: string; name: string; customName?: string }): BikeRow => ({
+          kind: "bike",
+          stationId: station.stationId,
+          name: station.name,
+          customName: station.customName ?? ""
+        })
+      )
+    }
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(imported))
+  } catch (error) {
+    console.error("Could not import the Transit Tracker configuration:", error)
+  }
+}
+
+importBikeTrackerConfig()
+
 export const config = createPersistentStore<ConfigState>(
-  "bikeTrackerConfig",
-  {
-    apiBaseUrl: defaultBaseUrl,
-    stations: [],
-    headerText: "",
-    abbreviations: [],
-    displayOrientation: "normal",
-    nameOverflow: "scroll"
-  },
+  CONFIG_KEY,
+  defaultConfig,
   migrateBaseUrlToHttp
 )
 

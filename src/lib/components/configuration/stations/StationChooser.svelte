@@ -1,29 +1,31 @@
 <script lang="ts">
   import { CircleLayer, GeoJSON, MapLibre, Popup, type Map as MapLibreMap } from "svelte-maplibre"
-  import type { ConfigState, SelectedStation } from "$lib/state"
+  import type { BikeRow } from "$lib/state"
   import * as Card from "$lib/components/ui/card"
   import { Button } from "$lib/components/ui/button"
   import { Input } from "$lib/components/ui/input"
-  import { Label } from "$lib/components/ui/label"
   import { mode as appearanceMode } from "mode-watcher"
   import type { FeatureCollection, Point } from "geojson"
   import * as turf from "@turf/turf"
   import { api, type StationListEntry } from "$lib/api"
   import { onMount } from "svelte"
-  import { ArrowDown, ArrowUp, LoaderCircle, Search, Trash2 } from "@lucide/svelte"
+  import { LoaderCircle, Search, Trash2 } from "@lucide/svelte"
   import StationPopup from "./StationPopup.svelte"
-  import StationPreview from "./StationPreview.svelte"
+  import RowPreview from "../rows/RowPreview.svelte"
   import { fly } from "svelte/transition"
-  import { MAX_STATIONS, rowsOnDisplay } from "./limits"
 
   interface Props {
-    config: ConfigState
-    onsave?: (stations: SelectedStation[]) => void
+    /** The stations already on the display */
+    initial: BikeRow[]
+    /** How many stations can be selected in total */
+    maxSelected: number
+    onsave?: (stations: BikeRow[]) => void
+    oncancel?: () => void
   }
 
-  let { config, onsave }: Props = $props()
+  let { initial, maxSelected, onsave, oncancel }: Props = $props()
 
-  let selected: SelectedStation[] = $state(config.stations.map((s) => ({ ...s })))
+  let selected: BikeRow[] = $state(initial.map((s) => ({ ...s })))
   let allStations: StationListEntry[] = $state([])
   let loadState: "loading" | "loaded" | "error" = $state("loading")
   let loadError = $state("")
@@ -31,7 +33,6 @@
   let query = $state("")
 
   let mapStyle = $derived($appearanceMode === "dark" ? "dark-matter-gl" : "positron-gl")
-  let rows = $derived(rowsOnDisplay(config.headerText))
 
   const normalize = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
 
@@ -81,19 +82,17 @@
   }
 
   function addStation(station: StationListEntry) {
-    if (isSelected(station.stationId) || selected.length >= MAX_STATIONS) return
-    selected.push({ stationId: station.stationId, name: station.name, customName: "" })
+    if (isSelected(station.stationId) || selected.length >= maxSelected) return
+    selected.push({
+      kind: "bike",
+      stationId: station.stationId,
+      name: station.name,
+      customName: ""
+    })
   }
 
   function removeStation(stationId: string) {
     selected = selected.filter((s) => s.stationId !== stationId)
-  }
-
-  function moveStation(index: number, direction: -1 | 1) {
-    const target = index + direction
-    if (target < 0 || target >= selected.length) return
-    const [station] = selected.splice(index, 1)
-    selected.splice(target, 0, station)
   }
 
   function pickSearchResult(station: StationListEntry) {
@@ -110,16 +109,12 @@
 <div class="flex h-full w-full flex-col-reverse md:flex-row">
   <div class="flex w-full flex-col overflow-y-auto p-4 md:w-3/5">
     <div class="mb-4">
-      <h2 class="mb-2 mt-0 scroll-m-20 text-3xl font-semibold tracking-tight">Selected Stations</h2>
+      <h2 class="mb-2 mt-0 scroll-m-20 text-3xl font-semibold tracking-tight">Vélo'v stations</h2>
 
       <p class="leading-6">
-        Search for a station by name to add it to your Bike Tracker, or click a station on the map
-        to see how many bikes it has right now.
-      </p>
-      <p class="mt-2 leading-6">
-        Your display shows {rows}
-        {rows === 1 ? "station" : "stations"} at a time. You can give each station a short name so it
-        fits on the display, for example "Home" or "Work".
+        Search for a station by name, or click a station on the map to see how many bikes it has
+        right now. Each station becomes one row; you can reorder the rows and give them a short name
+        after saving.
       </p>
     </div>
 
@@ -158,49 +153,17 @@
       </Button>
     {/if}
 
-    {#each selected as station, index (station.stationId)}
-      <Card.Root class="mb-3 {index >= rows ? 'opacity-60' : ''}">
-        <Card.Header class="flex flex-row items-center justify-between space-y-0 px-4 pb-2 pt-3">
+    {#each selected as station (station.stationId)}
+      <Card.Root class="mb-3">
+        <Card.Header class="flex flex-row items-center justify-between space-y-0 px-4 py-2">
           <Card.Title class="text-lg">{station.name}</Card.Title>
-          <div class="flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Move up"
-              disabled={index === 0}
-              onclick={() => moveStation(index, -1)}><ArrowUp /></Button
-            >
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Move down"
-              disabled={index === selected.length - 1}
-              onclick={() => moveStation(index, 1)}><ArrowDown /></Button
-            >
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Remove"
-              onclick={() => removeStation(station.stationId)}><Trash2 /></Button
-            >
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Remove"
+            onclick={() => removeStation(station.stationId)}><Trash2 /></Button
+          >
         </Card.Header>
-        <Card.Content class="flex flex-col gap-2 p-4 pt-0">
-          <Label for="name-{station.stationId}">Name on the display (optional)</Label>
-          <Input
-            id="name-{station.stationId}"
-            class="h-8 px-2 py-1"
-            placeholder={station.name}
-            maxlength={40}
-            bind:value={station.customName}
-          />
-          {#if index >= rows}
-            <div class="text-sm text-muted-foreground">
-              Not shown: the display only has room for {rows}
-              {rows === 1 ? "station" : "stations"}.
-            </div>
-          {/if}
-        </Card.Content>
       </Card.Root>
     {/each}
 
@@ -208,11 +171,22 @@
       {#if selected.length > 0}
         <div transition:fly={{ duration: 300, y: 10 }}>
           <h3 class="mb-2 scroll-m-20 text-2xl font-semibold tracking-tight">Preview</h3>
-          <StationPreview stations={selected} />
+          <RowPreview rows={selected} />
         </div>
       {/if}
 
-      <Button size="lg" onclick={() => onsave?.(selected)}>Save</Button>
+      {#if selected.length >= maxSelected}
+        <div class="text-sm text-muted-foreground">
+          You've reached the maximum of {maxSelected} rows that fit in the display's settings.
+        </div>
+      {/if}
+
+      <div class="flex gap-2">
+        <Button size="lg" variant="secondary" class="flex-grow" onclick={() => oncancel?.()}
+          >Cancel</Button
+        >
+        <Button size="lg" class="flex-grow" onclick={() => onsave?.(selected)}>Save</Button>
+      </div>
     </div>
   </div>
 
@@ -244,7 +218,7 @@
                 <StationPopup
                   {station}
                   selected={isSelected(station.stationId)}
-                  disabled={selected.length >= MAX_STATIONS}
+                  disabled={selected.length >= maxSelected}
                   onadd={addStation}
                   onremove={(station) => removeStation(station.stationId)}
                 />

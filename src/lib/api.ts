@@ -37,7 +37,31 @@ export interface StationStatus {
   lastReported: number | null
 }
 
-class BikeTrackerApi {
+export interface Trip {
+  tripId: string
+  routeId: string
+  routeName: string
+  routeColor: string | null
+  stopId: string
+  stopName: string
+  headsign: string
+  arrivalTime: number
+  departureTime: number
+  isRealtime: boolean
+}
+
+export interface Schedule {
+  trips: Trip[]
+}
+
+export interface Route {
+  routeId: string
+  name: string
+  color: string | null
+  headsigns: string[]
+}
+
+class TransitTrackerApi {
   private baseUrl!: string
 
   constructor(state: Readable<ConfigState>) {
@@ -82,6 +106,25 @@ class BikeTrackerApi {
     return stations
   }
 
+  async getSchedule(pairs: string, limit: number = 10, signal?: AbortSignal): Promise<Schedule> {
+    const response = await fetch(
+      `${this.baseUrl}/schedule/${encodeURIComponent(pairs)}?limit=${limit}`,
+      { signal }
+    )
+    if (!response.ok) {
+      throw new Error(`Error fetching schedule: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  async getRoutesForStop(stopId: string): Promise<Route[]> {
+    const response = await fetch(`${this.baseUrl}/stops/${encodeURIComponent(stopId)}/routes`)
+    if (!response.ok) {
+      throw new Error(`Error fetching routes for stop: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
   async getStopsWithin(bounds: number[][], signal?: AbortSignal): Promise<Stop[]> {
     const response = await fetch(
       `${this.baseUrl}/stops/within/${bounds[0][0]},${bounds[0][1]},${bounds[1][0]},${bounds[1][1]}`,
@@ -94,4 +137,4 @@ class BikeTrackerApi {
   }
 }
 
-export const api = new BikeTrackerApi(config)
+export const api = new TransitTrackerApi(config)

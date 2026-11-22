@@ -2,7 +2,9 @@
 
 ![](screenshot.jpg)
 
-By popular demand, this is the source for the web-based UI used to configure [Transit Tracker](https://transit-tracker.eastsideurbanism.org/) devices. It's made with SvelteKit and has an incredible amount of tech debt and spaghetti. It should probably be rewritten from scratch to be more maintainable and easier to reason about, but who knows when I'll have the time to do that.
+This fork configures Transit Tracker displays for Lyon: each row of the display shows either a TCL line at a stop (next departure) or a Vélo'v station (free docks and bikes). It talks to the [Transit Tracker Lyon API](https://github.com/tiralmos/transit-tracker-lyon-api) and flashes the firmware from [tiralmos/transit-tracker-lyon-firmware](https://github.com/tiralmos/transit-tracker-lyon-firmware). Run it with Docker from the API's `deploy/tcl-velov` stack.
+
+The original description: this is the source for the web-based UI used to configure [Transit Tracker](https://transit-tracker.eastsideurbanism.org/) devices. It's made with SvelteKit and has an incredible amount of tech debt and spaghetti. It should probably be rewritten from scratch to be more maintainable and easier to reason about, but who knows when I'll have the time to do that.
 
 Have fun.
 
