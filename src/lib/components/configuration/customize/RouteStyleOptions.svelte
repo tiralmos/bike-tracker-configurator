@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { type ConfigState, type RouteAtStop, type RouteStyle } from "$lib/state"
+  import { type ConfigState, type RouteAtStop, type RouteStyle, allRows } from "$lib/state"
   import { Button } from "$lib/components/ui/button"
   import { Input } from "$lib/components/ui/input"
   import { Card, CardContent } from "$lib/components/ui/card"
@@ -15,7 +15,7 @@
   let { configState, onsave }: Props = $props()
 
   let styles: RouteStyle[] = $state(configState.routeStyles)
-  const transitRows = configState.rows.filter((row) => row.kind === "transit")
+  const transitRows = allRows(configState).filter((row) => row.kind === "transit")
   let availableRoutes: RouteAtStop[] = $derived(
     Array.from(new Set(transitRows.map((route) => route.routeId)))
       .filter((routeId) => !styles.some((style) => style.routeId === routeId))

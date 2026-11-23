@@ -315,6 +315,19 @@ const EBIKE_ICON = [
   "....##.....##."
 ]
 
+/** The Vélo'v logo, on the left of each bike row like a transit row's line badge (same as the firmware) */
+const BIKE_BADGE_ICON = [
+  ".....##.",
+  "....###.",
+  "##..####",
+  "###.##..",
+  ".##.##..",
+  ".#####..",
+  ".####...",
+  "..###..."
+]
+const BIKE_BADGE_COLOR = hexColor(0xe4022e)
+
 const ICON_COUNT_GAP = 1
 const GROUP_GAP = 3
 
@@ -704,14 +717,27 @@ export class TrackerSimulator {
       x -= GROUP_GAP
     }
 
+    const isOpen = isRenting || isReturning
+    if (draw) {
+      drawIcon(
+        this.fb,
+        BIKE_BADGE_ICON,
+        0,
+        iconBottomY,
+        isOpen ? BIKE_BADGE_COLOR : UNAVAILABLE_COLOR,
+        COUNT_COLOR
+      )
+    }
+    const nameStart = BIKE_BADGE_ICON[0].length + 3
+
     const name = row.name || "Station not found"
-    const overflow = this.font.measureText(name) - x
+    const overflow = this.font.measureText(name) - (x - nameStart)
 
     if (draw) {
       const scrollOffset = scrollOffsetAt(overflow, uptime, scrollCycleDuration)
-      const nameColor = isRenting || isReturning ? COUNT_COLOR : UNAVAILABLE_COLOR
-      this.fb.startClipping(0, 0, x, this.height)
-      this.font.drawText(this.fb, -scrollOffset, yOffset, name, nameColor)
+      const nameColor = isOpen ? COUNT_COLOR : UNAVAILABLE_COLOR
+      this.fb.startClipping(nameStart, 0, x, this.height)
+      this.font.drawText(this.fb, nameStart - scrollOffset, yOffset, name, nameColor)
       this.fb.endClipping()
     }
     return overflow

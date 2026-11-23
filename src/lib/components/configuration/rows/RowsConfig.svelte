@@ -3,6 +3,7 @@
     ArrowDown,
     ArrowUp,
     Bike,
+    Clock,
     CopyPlus,
     Plus,
     TrainFront,
@@ -18,22 +19,93 @@
   import StationChooser from "../stations/StationChooser.svelte"
   import RowPreview from "./RowPreview.svelte"
   import {
+    activeSlotAt,
+    allRows,
     config,
     isLoopbackUrl,
     isSameRouteAtStop,
+    rowId,
     rowKey,
+    slotLabel,
+    slotProblem,
     type BikeRow,
     type DisplayRow,
     type RouteAtStop,
     type TransitRow
   } from "$lib/state"
+  import { rowsStorageUsed } from "$lib/device"
   import { scale } from "svelte/transition"
+  import { onDestroy } from "svelte"
   import { goto } from "$app/navigation"
   import { MAX_ROWS, rowsOnDisplay } from "./limits"
 
   let editor: "none" | "transit" | "bike" = $state("none")
 
-  let rows = $derived($config.rows)
+  /** "default", or the ID of the time slot being edited */
+  let selectedSlotId = $state("default")
+  let selectedSlot = $derived($config.timeSlots.find((slot) => slot.id === selectedSlotId) ?? null)
+
+  $effect(() => {
+    if (selectedSlotId !== "default" && !selectedSlot) selectedSlotId = "default"
+  })
+
+  /** The rows of the default set or of the selected time slot */
+  let rows = $derived(selectedSlot ? selectedSlot.rows : $config.rows)
+
+  function setRows(next: DisplayRow[]) {
+    if (selectedSlot) {
+      const id = selectedSlot.id
+      $config.timeSlots = $config.timeSlots.map((slot) =>
+        slot.id === id ? { ...slot, rows: next } : slot
+      )
+    } else {
+      $config.rows = next
+    }
+  }
+
+  let storageUsed = $derived(rowsStorageUsed($config))
+
+  let now = $state(new Date())
+  const clock = setInterval(() => (now = new Date()), 30_000)
+  onDestroy(() => clearInterval(clock))
+  let activeSlot = $derived(activeSlotAt($config.timeSlots, now.getHours() * 60 + now.getMinutes()))
+
+  /** A new slot starts where the last one ends */
+  function addTimeSlot() {
+    const last = $config.timeSlots.at(-1)
+    const start = last?.end ?? "07:00"
+    const [hours, minutes] = start.split(":").map(Number)
+    const end = `${String((hours + 2) % 24).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
+    const slot = { id: crypto.randomUUID(), start, end, rows: [] }
+    $config.timeSlots = [...$config.timeSlots, slot]
+    selectedSlotId = slot.id
+  }
+
+  function updateSlotTime(field: "start" | "end", value: string) {
+    if (!selectedSlot) return
+    const id = selectedSlot.id
+    $config.timeSlots = $config.timeSlots.map((slot) =>
+      slot.id === id ? { ...slot, [field]: value } : slot
+    )
+  }
+
+  function removeTimeSlot() {
+    if (!selectedSlot) return
+    const id = selectedSlot.id
+    $config.timeSlots = $config.timeSlots.filter((slot) => slot.id !== id)
+    selectedSlotId = "default"
+  }
+
+  /** A name belongs to a line at a stop or a station, in every slot */
+  function setCustomName(row: DisplayRow, name: string) {
+    const id = rowId(row)
+    const rename = (list: DisplayRow[]) =>
+      list.map((other) =>
+        other.kind === row.kind && rowId(other) === id ? { ...other, customName: name } : other
+      )
+    $config.rows = rename($config.rows)
+    $config.timeSlots = $config.timeSlots.map((slot) => ({ ...slot, rows: rename(slot.rows) }))
+  }
   let visibleRows = $derived(rowsOnDisplay($config.headerText))
 
   let transitRows = $derived(rows.filter((row): row is TransitRow => row.kind === "transit"))
@@ -52,7 +124,7 @@
   let bikeMax = $derived(MAX_ROWS - transitRows.length)
 
   function saveTransit(routes: RouteAtStop[], timeOffsets: Record<string, number>) {
-    const kept = $config.rows.flatMap((row): DisplayRow[] => {
+    const kept = rows.flatMap((row): DisplayRow[] => {
       if (row.kind !== "transit") return [row]
       const route = routes.find((r) => isSameRouteAtStop(r, row))
       return route ? [{ ...row, ...route }] : []
@@ -63,16 +135,16 @@
       )
       .map((route): TransitRow => ({ kind: "transit", ...route, customName: "" }))
 
-    $config.rows = [...kept, ...added]
+    setRows([...kept, ...added])
     $config.stopTimeOffsets = timeOffsets
     $config.routeStyles = $config.routeStyles.filter((style) =>
-      $config.rows.some((row) => row.kind === "transit" && row.routeId === style.routeId)
+      allRows($config).some((row) => row.kind === "transit" && row.routeId === style.routeId)
     )
     editor = "none"
   }
 
   function saveStations(stations: BikeRow[]) {
-    const kept = $config.rows.flatMap((row): DisplayRow[] => {
+    const kept = rows.flatMap((row): DisplayRow[] => {
       if (row.kind !== "bike") return [row]
       const station = stations.find((s) => s.stationId === row.stationId)
       return station ? [{ ...row, name: station.name }] : []
@@ -81,28 +153,28 @@
       (station) => !kept.some((row) => row.kind === "bike" && row.stationId === station.stationId)
     )
 
-    $config.rows = [...kept, ...added]
+    setRows([...kept, ...added])
     editor = "none"
   }
 
   function moveRow(index: number, direction: -1 | 1) {
     const target = index + direction
-    if (target < 0 || target >= $config.rows.length) return
-    const next = [...$config.rows]
+    if (target < 0 || target >= rows.length) return
+    const next = [...rows]
     const [row] = next.splice(index, 1)
     next.splice(target, 0, row)
-    $config.rows = next
+    setRows(next)
   }
 
   function removeRow(index: number) {
-    $config.rows = $config.rows.filter((_, i) => i !== index)
+    setRows(rows.filter((_, i) => i !== index))
   }
 
   /** Adds the same line below, which then shows the departure after. */
   function addFollowingDeparture(index: number) {
-    const next = [...$config.rows]
-    next.splice(index + 1, 0, { ...next[index], customName: "" })
-    $config.rows = next
+    const next = [...rows]
+    next.splice(index + 1, 0, { ...next[index] })
+    setRows(next)
   }
 
   function badgeStyle(row: TransitRow) {
@@ -162,7 +234,83 @@
 {/if}
 
 <div class="mb-5">
-  <h4 class="scroll-m-20 text-xl font-semibold tracking-tight">Rows</h4>
+  <h4 class="scroll-m-20 text-xl font-semibold tracking-tight">Time slots</h4>
+  <div class="mb-3 text-sm text-muted-foreground">
+    Show other rows at some times of the day, for example your tram in the morning and your Vélo'v
+    station in the evening. Outside every time slot, the display shows the default rows, or stays
+    dark if there are none.
+  </div>
+
+  <div class="flex flex-wrap gap-2" role="tablist" aria-label="Rows to edit">
+    <Button
+      size="sm"
+      role="tab"
+      aria-selected={selectedSlotId === "default"}
+      variant={selectedSlotId === "default" ? "default" : "outline"}
+      onclick={() => (selectedSlotId = "default")}
+    >
+      Default rows
+      {#if !activeSlot}<span class="ml-1 text-xs opacity-70">· now</span>{/if}
+    </Button>
+    {#each $config.timeSlots as slot (slot.id)}
+      {@const problem = slotProblem(slot, $config.timeSlots)}
+      <Button
+        size="sm"
+        role="tab"
+        aria-selected={selectedSlotId === slot.id}
+        variant={selectedSlotId === slot.id ? "default" : "outline"}
+        class={problem ? "border-destructive text-destructive" : ""}
+        onclick={() => (selectedSlotId = slot.id)}
+      >
+        {#if problem}<TriangleAlert />{:else}<Clock />{/if}
+        {slotLabel(slot)}
+        {#if activeSlot?.id === slot.id}<span class="ml-1 text-xs opacity-70">· now</span>{/if}
+      </Button>
+    {/each}
+    <Button size="sm" variant="secondary" onclick={addTimeSlot}><Plus /> Add a time slot</Button>
+  </div>
+
+  {#if selectedSlot}
+    {@const problem = slotProblem(selectedSlot, $config.timeSlots)}
+    <div class="mt-3 flex flex-wrap items-end gap-3">
+      <div class="flex flex-col gap-1">
+        <Label for="slot-start" class="text-xs">From</Label>
+        <Input
+          id="slot-start"
+          type="time"
+          class="h-8 w-32 px-2 py-1"
+          value={selectedSlot.start}
+          onchange={(e) => updateSlotTime("start", e.currentTarget.value)}
+        />
+      </div>
+      <div class="flex flex-col gap-1">
+        <Label for="slot-end" class="text-xs">To</Label>
+        <Input
+          id="slot-end"
+          type="time"
+          class="h-8 w-32 px-2 py-1"
+          value={selectedSlot.end}
+          onchange={(e) => updateSlotTime("end", e.currentTarget.value)}
+        />
+      </div>
+      <Button size="sm" variant="ghost" onclick={removeTimeSlot}><Trash2 /> Remove this slot</Button
+      >
+    </div>
+    {#if problem}
+      <div class="mt-2 text-sm text-destructive">
+        <TriangleAlert class="mb-1 inline" size={16} />
+        {problem}
+      </div>
+    {:else if parseInt(selectedSlot.end) < parseInt(selectedSlot.start)}
+      <div class="mt-2 text-xs text-muted-foreground">Crosses midnight.</div>
+    {/if}
+  {/if}
+</div>
+
+<div class="mb-5">
+  <h4 class="scroll-m-20 text-xl font-semibold tracking-tight">
+    {selectedSlot ? `Rows from ${selectedSlot.start} to ${selectedSlot.end}` : "Default rows"}
+  </h4>
   <div class="mb-3 text-sm text-muted-foreground">
     Each row shows either a TCL line at a stop, with its next departure, or a Vélo'v station, with
     its free docks and bikes. The display shows the first {visibleRows} rows.
@@ -231,7 +379,8 @@
           class="h-8 px-2 py-1"
           placeholder={row.kind === "transit" ? "Destination of each trip" : row.name}
           maxlength={30}
-          bind:value={$config.rows[index].customName}
+          value={row.customName}
+          oninput={(e) => setCustomName(row, e.currentTarget.value)}
         />
         {#if index >= visibleRows}
           <div class="text-xs text-muted-foreground">
@@ -244,7 +393,21 @@
 
   {#if rows.length === 0}
     <div class="mb-3 rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-      No rows yet. Add a transit line or a Vélo'v station to get started.
+      {#if selectedSlot}
+        No rows in this time slot yet: the display stays dark from {selectedSlot.start} to {selectedSlot.end}.
+      {:else if $config.timeSlots.length > 0}
+        No default rows: outside the time slots, the display stays dark.
+      {:else}
+        No rows yet. Add a transit line or a Vélo'v station to get started.
+      {/if}
+    </div>
+  {/if}
+
+  {#if storageUsed > 0.8}
+    <div class="mb-3 text-xs {storageUsed > 1 ? 'text-destructive' : 'text-muted-foreground'}">
+      {storageUsed > 1
+        ? "Too many rows to save on the display. Remove a few, starting with the ones that are not shown."
+        : `The display's row storage is ${Math.round(storageUsed * 100)}% full.`}
     </div>
   {/if}
 
