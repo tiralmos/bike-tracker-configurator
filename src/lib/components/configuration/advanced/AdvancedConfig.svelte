@@ -12,6 +12,7 @@
   function saveApiBaseUrl(newUrl: string) {
     if ($config.apiBaseUrl !== newUrl) {
       $config.rows = []
+      $config.timeSlots = []
       $config.routeStyles = []
       $config.stopTimeOffsets = {}
     }
