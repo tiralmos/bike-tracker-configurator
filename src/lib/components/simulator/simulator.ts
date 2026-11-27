@@ -29,6 +29,8 @@ export type SimulatorRow =
       /** Replaces the trip's destination, if set */
       customName?: string
       trip: Trip | null
+      /** Active alerts for the line, most severe first */
+      alerts?: SimulatorAlert[]
     }
   | {
       kind: "bike"
@@ -36,6 +38,19 @@ export type SimulatorRow =
       name: string
       station: Station | null
     }
+
+export type AlertLevel = "severe" | "warning" | "info"
+
+export interface SimulatorAlert {
+  level: AlertLevel
+  text: string
+}
+
+export interface SimulatorWeather {
+  temperature: number
+  kind: string
+  isDay: boolean
+}
 
 export type UnitDisplay = "long" | "short" | "none"
 
@@ -66,6 +81,10 @@ export interface SimulatorOptions {
   displayDepartureTimes?: boolean
   timeStrings?: TimeStrings
   realtimeColor?: Color
+  /** The Vélo'v logo takes the color of the temperature (needs the weather) */
+  temperatureLogo?: boolean
+  /** Weather icon and temperature on the first bike row (needs the weather) */
+  showWeather?: boolean
 }
 
 function colorToCSS(c: Color): string {
@@ -329,7 +348,75 @@ const BIKE_BADGE_ICON = [
 const BIKE_BADGE_COLOR = hexColor(0xe4022e)
 
 const ICON_COUNT_GAP = 1
-const GROUP_GAP = 3
+/** Between the groups of a bike row, and between the groups and the name */
+const GROUP_GAP = 2
+const NAME_GAP = 3
+
+// Weather icons, 7 pixels tall (same as the firmware). y = sun, w = cloud,
+// b = rain, s = snow, z = lightning, g = fog, m = moon.
+const WEATHER_ICONS: Record<string, string[]> = {
+  clear: ["y..y..y", ".yyyyy.", ".yyyyy.", "yyyyyyy", ".yyyyy.", ".yyyyy.", "y..y..y"],
+  night: ["..mmm..", ".mm....", "mm.....", "mm.....", "mm.....", ".mm....", "..mmm.."],
+  partly: [
+    "..y.y....",
+    "...yyy...",
+    "..yyywww.",
+    "...ywwwww",
+    "..wwwwwww",
+    ".wwwwwwww",
+    "..wwwwww."
+  ],
+  cloudy: [
+    "...www...",
+    "..wwwww..",
+    ".wwwwwww.",
+    "wwwwwwwww",
+    "wwwwwwwww",
+    ".wwwwwww.",
+    "........."
+  ],
+  rain: ["...www...", "..wwwww..", ".wwwwwww.", "wwwwwwwww", ".wwwwwww.", ".b..b..b.", "b..b..b.."],
+  snow: ["...www...", "..wwwww..", ".wwwwwww.", "wwwwwwwww", ".wwwwwww.", "s...s...s", "..s...s.."],
+  storm: [
+    "...www...",
+    "..wwwww..",
+    ".wwwwwww.",
+    "wwwwwwwww",
+    ".wwwzwww.",
+    "....z....",
+    "...z....."
+  ],
+  fog: ["ggggggg..", ".........", "..ggggggg", ".........", "ggggggg..", ".........", "..ggggggg"]
+}
+const WEATHER_PALETTE: Record<string, Color> = {
+  y: hexColor(0xffd200),
+  w: hexColor(0xc8c8c8),
+  b: hexColor(0x00a8ff),
+  s: hexColor(0xffffff),
+  z: hexColor(0xffd200),
+  g: hexColor(0x8a8a8a),
+  m: hexColor(0xf0e68c)
+}
+const DEGREE_ICON = [".#.", "#.#", ".#."]
+
+/** The color of a temperature, for the Vélo'v logo and the weather (same as the firmware) */
+export function temperatureColor(celsius: number): Color {
+  if (celsius < 0) return hexColor(0xb4e6ff)
+  if (celsius < 10) return hexColor(0x0090ff)
+  if (celsius < 20) return hexColor(0x2ecc40)
+  if (celsius < 28) return hexColor(0xff8c00)
+  return hexColor(0xe4022e)
+}
+
+const ALERT_COLORS: Record<AlertLevel, Color> = {
+  severe: hexColor(0xff3b30),
+  warning: hexColor(0xffd200),
+  info: hexColor(0x8fd8ff)
+}
+const ALERT_SCROLL_SPEED = 20 // pixels/second
+const ALERT_HOLD_TIME = 1500 // ms
+const ALERT_MIN_PERIOD = 45000 // ms
+const ALERT_MIN_GAP = 15000 // ms
 
 const DOCKS_COLOR = hexColor(0x00a8ff)
 const MECHANICAL_COLOR = hexColor(0xe2001a)
@@ -482,6 +569,12 @@ export class TrackerSimulator {
   private timeStrings: TimeStrings
   private realtimeColor: Color
   private realtimeColorDark: Color
+  private temperatureLogo: boolean
+  private showWeather: boolean
+  private weather: SimulatorWeather | null = null
+  // Set by drawFrame for the rows it draws
+  private countWidths = [0, 0, 0]
+  private weatherRow = -1
 
   constructor(canvas: HTMLCanvasElement, options: SimulatorOptions = {}) {
     this.width = options.width ?? 128
@@ -499,6 +592,9 @@ export class TrackerSimulator {
       b: Math.floor(this.realtimeColor.b * 0.5)
     }
 
+    this.temperatureLogo = options.temperatureLogo ?? false
+    this.showWeather = options.showWeather ?? false
+
     this.fb = new PixelFramebuffer(this.width, this.height)
     this.renderer = new CanvasRenderer(
       canvas,
@@ -513,6 +609,10 @@ export class TrackerSimulator {
 
   setRows(rows: SimulatorRow[]) {
     this.rows = rows
+  }
+
+  setWeather(weather: SimulatorWeather | null) {
+    this.weather = weather
   }
 
   start() {
@@ -555,14 +655,18 @@ export class TrackerSimulator {
     const nominalFontHeight = fontAscender + fontDescender
     // The header text takes the place of one row
     const rows = this.rows.slice(0, this.headerText ? this.limit - 1 : this.limit)
+    this.updateCountWidths(rows)
 
     // Every name scrolls in step, so the cycle lasts as long as the longest one needs
     let scrollCycleDuration = 0
     if (this.scrollNames) {
       let largestOverflow = 0
-      for (const row of rows) {
-        largestOverflow = Math.max(largestOverflow, this.drawRow(row, 0, uptime, rtcNow, 0, false))
-      }
+      rows.forEach((row, index) => {
+        largestOverflow = Math.max(
+          largestOverflow,
+          this.drawRow(row, index, 0, uptime, rtcNow, 0, false)
+        )
+      })
       if (largestOverflow > 0) {
         const longestScrollTime = Math.floor((largestOverflow * 1000) / SCROLL_SPEED)
         scrollCycleDuration = IDLE_TIME_LEFT + IDLE_TIME_RIGHT + 2 * longestScrollTime
@@ -578,17 +682,67 @@ export class TrackerSimulator {
       yOffset += nominalFontHeight
     }
 
-    for (const row of rows) {
-      this.drawRow(row, yOffset, uptime, rtcNow, scrollCycleDuration, true)
+    rows.forEach((row, index) => {
+      this.drawRow(row, index, yOffset, uptime, rtcNow, scrollCycleDuration, true)
       yOffset += nominalFontHeight
-    }
+    })
 
     this.renderer.render(this.fb)
+  }
+
+  /** Number column widths of the bike rows on screen, and which row shows the weather */
+  private updateCountWidths(rows: SimulatorRow[]) {
+    const zero = this.font.measureText("0")
+    this.countWidths = [zero, zero, zero]
+    this.weatherRow = -1
+    rows.forEach((row, index) => {
+      if (row.kind !== "bike") return
+      if (this.weatherRow < 0 && this.showWeather && this.weather) this.weatherRow = index
+      const s = row.station
+      const counts = s
+        ? [s.electricBikesAvailable, s.mechanicalBikesAvailable, s.docksAvailable].map(String)
+        : ["-", "-", "-"]
+      counts.forEach((text, i) => {
+        this.countWidths[i] = Math.max(this.countWidths[i], this.font.measureText(text))
+      })
+    })
+  }
+
+  private logoColor(): Color {
+    return this.temperatureLogo && this.weather
+      ? temperatureColor(this.weather.temperature)
+      : BIKE_BADGE_COLOR
+  }
+
+  /** Draws the weather from leftX and returns its width; with draw false, only measures */
+  private drawWeather(leftX: number, yOffset: number, draw: boolean): number {
+    const weather = this.weather!
+    const key = weather.kind === "clear" && !weather.isDay ? "night" : weather.kind
+    const icon = WEATHER_ICONS[key] ?? WEATHER_ICONS.cloudy
+    const temperature = String(weather.temperature)
+    const temperatureWidth = this.font.measureText(temperature)
+    const width = icon[0].length + 1 + temperatureWidth + DEGREE_ICON[0].length
+
+    if (draw) {
+      const color = temperatureColor(weather.temperature)
+      const bottomY = yOffset + this.font.getAscender() - 1
+      icon.forEach((line, i) => {
+        for (let col = 0; col < line.length; col++) {
+          const c = WEATHER_PALETTE[line[col]]
+          if (c) this.fb.drawPixel(leftX + col, bottomY - (icon.length - 1 - i), c)
+        }
+      })
+      const x = leftX + icon[0].length + 1
+      this.font.drawText(this.fb, x, yOffset, temperature, color)
+      drawIcon(this.fb, DEGREE_ICON, x + temperatureWidth, yOffset + 2, color, color)
+    }
+    return width
   }
 
   /** Returns how many pixels the row's name is too wide for. */
   private drawRow(
     row: SimulatorRow,
+    index: number,
     yOffset: number,
     uptime: number,
     rtcNow: number,
@@ -597,7 +751,7 @@ export class TrackerSimulator {
   ): number {
     return row.kind === "transit"
       ? this.drawTransitRow(row, yOffset, uptime, rtcNow, scrollCycleDuration, draw)
-      : this.drawBikeRow(row, yOffset, uptime, scrollCycleDuration, draw)
+      : this.drawBikeRow(row, yOffset, uptime, scrollCycleDuration, draw, index === this.weatherRow)
   }
 
   private drawTransitRow(
@@ -631,7 +785,7 @@ export class TrackerSimulator {
       this.font.drawText(this.fb, this.width + 1 - timeWidth, yOffset, timeText, timeColor)
     }
 
-    const clipStart = routeWidth + 3
+    let clipStart = routeWidth + 3
     let clipEnd = this.width - timeWidth - 2
     if (isRealtime) {
       clipEnd -= 8
@@ -649,7 +803,46 @@ export class TrackerSimulator {
 
     const name = row.customName || trip?.headsign || "No departures"
     const nameColor = row.customName || trip ? WHITE : UNAVAILABLE_COLOR
+
+    // Alerts: a "!" in the color of the worst one, and now and then the
+    // alert itself in place of the name, scrolling once (same as the firmware)
+    const alerts = row.alerts ?? []
+    if (alerts.length > 0) {
+      if (draw)
+        this.font.drawText(this.fb, routeWidth + 2, yOffset, "!", ALERT_COLORS[alerts[0].level])
+      clipStart = routeWidth + 5
+    }
+
     const overflow = this.font.measureText(name) - (clipEnd - clipStart)
+
+    if (alerts.length > 0) {
+      const clipWidth = clipEnd - clipStart
+      const scrollOf = (alert: SimulatorAlert) =>
+        Math.max(0, this.font.measureText(alert.text) - clipWidth)
+      const duration = (alert: SimulatorAlert) =>
+        2 * ALERT_HOLD_TIME + Math.floor((scrollOf(alert) * 1000) / ALERT_SCROLL_SPEED)
+      const period = Math.max(ALERT_MIN_PERIOD, Math.max(...alerts.map(duration)) + ALERT_MIN_GAP)
+      const alert = alerts[Math.floor(uptime / period) % alerts.length]
+      const t = Math.floor(uptime % period)
+      if (t < duration(alert)) {
+        if (draw) {
+          const offset = Math.min(
+            scrollOf(alert),
+            Math.max(0, Math.floor(((t - ALERT_HOLD_TIME) * ALERT_SCROLL_SPEED) / 1000))
+          )
+          this.fb.startClipping(clipStart, 0, clipEnd, this.height)
+          this.font.drawText(
+            this.fb,
+            clipStart - offset,
+            yOffset,
+            alert.text,
+            ALERT_COLORS[alert.level]
+          )
+          this.fb.endClipping()
+        }
+        return overflow
+      }
+    }
 
     if (draw) {
       const scrollOffset = scrollOffsetAt(overflow, uptime, scrollCycleDuration)
@@ -665,7 +858,8 @@ export class TrackerSimulator {
     yOffset: number,
     uptime: number,
     scrollCycleDuration: number,
-    draw: boolean
+    draw: boolean,
+    withWeather: boolean
   ): number {
     const station = row.station
     const isRenting = station?.isRenting ?? false
@@ -692,12 +886,12 @@ export class TrackerSimulator {
       }
     ]
 
-    const countWidth = this.font.measureText("00")
     const iconBottomY = yOffset + this.font.getAscender() - 1
 
+    // A count column is as wide as the widest number in it on screen
     let x = this.width
-    for (const group of groups) {
-      x -= countWidth
+    groups.forEach((group, i) => {
+      x -= this.countWidths[i]
       if (draw) {
         const countColor = group.available && group.count > 0 ? COUNT_COLOR : UNAVAILABLE_COLOR
         this.font.drawText(this.fb, x, yOffset, station ? String(group.count) : "-", countColor)
@@ -714,7 +908,13 @@ export class TrackerSimulator {
           group.available ? BOLT_COLOR : UNAVAILABLE_COLOR
         )
       }
-      x -= GROUP_GAP
+      x -= i < groups.length - 1 ? GROUP_GAP : NAME_GAP
+    })
+
+    if (withWeather) {
+      x -= this.drawWeather(0, yOffset, false)
+      this.drawWeather(x, yOffset, draw)
+      x -= NAME_GAP
     }
 
     const isOpen = isRenting || isReturning
@@ -724,7 +924,7 @@ export class TrackerSimulator {
         BIKE_BADGE_ICON,
         0,
         iconBottomY,
-        isOpen ? BIKE_BADGE_COLOR : UNAVAILABLE_COLOR,
+        isOpen ? this.logoColor() : UNAVAILABLE_COLOR,
         COUNT_COLOR
       )
     }

@@ -92,6 +92,12 @@ export interface ConfigState {
   displayOrientation: "normal" | "flipped"
   nameOverflow: "hidden" | "scroll"
   localization: Localization
+  /** Disruption alerts on the transit rows */
+  alerts: boolean
+  /** Color of the Vélo'v logo: always red, or by outdoor temperature */
+  logoColor: "red" | "temperature"
+  /** Weather icon and temperature on the first Vélo'v row */
+  weather: boolean
 }
 
 /** Identifies a row on the device, e.g. in the row names setting. */
@@ -245,7 +251,10 @@ const defaultConfig: ConfigState = {
     minLong: "min",
     minShort: "m",
     hoursShort: "h"
-  }
+  },
+  alerts: false,
+  logoColor: "red",
+  weather: false
 }
 
 /**

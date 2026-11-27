@@ -8,6 +8,7 @@ import {
   type ConfigState,
   type DisplayRow
 } from "./state"
+import { api } from "./api"
 import { ConfigValidationError, type TransitTrackerDevice } from "./device/transit-tracker-device"
 
 /** The device's text settings hold at most 255 characters. */
@@ -98,6 +99,23 @@ function validate(config: ConfigState) {
   }
 }
 
+/** Lyon city center, when no Vélo'v station gives a better place */
+export const DEFAULT_WEATHER_LOCATION = { lat: 45.7578, lon: 4.832 }
+
+/** The weather comes from the first Vélo'v row's station, else Lyon. */
+export async function weatherLocation(config: ConfigState) {
+  const firstBike = allRows(config).find((row) => row.kind === "bike")
+  if (firstBike?.kind === "bike") {
+    try {
+      const station = (await api.listStations()).find((s) => s.stationId === firstBike.stationId)
+      if (station) return { lat: station.lat, lon: station.lon }
+    } catch (error) {
+      console.error("Could not look up the station for the weather:", error)
+    }
+  }
+  return DEFAULT_WEATHER_LOCATION
+}
+
 async function* configRequestGenerator(device: TransitTrackerDevice, config: ConfigState) {
   yield device.setTextEntity("base_url_config", getWebSocketEndpoint(config.apiBaseUrl))
 
@@ -143,6 +161,15 @@ async function* configRequestGenerator(device: TransitTrackerDevice, config: Con
   yield device.setSelectEntity("time_units_config", config.timeUnits)
 
   yield device.setSwitchEntity("scroll_names", config.nameOverflow === "scroll" ? "ON" : "OFF")
+
+  const location = await weatherLocation(config)
+  yield device.setTextEntity(
+    "weather_location_config",
+    `${location.lat.toFixed(4)},${location.lon.toFixed(4)}`
+  )
+  yield device.setSelectEntity("alerts_config", config.alerts ? "on" : "off")
+  yield device.setSelectEntity("logo_color_config", config.logoColor)
+  yield device.setSelectEntity("weather_config", config.weather ? "on" : "off")
 
   yield device.setTextEntity("now_str_config", config.localization.now)
   yield device.setTextEntity("min_long_str_config", config.localization.minLong)

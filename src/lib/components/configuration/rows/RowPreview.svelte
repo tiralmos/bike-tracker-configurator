@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, type StationStatus, type Trip as ApiTrip } from "$lib/api"
+  import { api, type Alert, type StationStatus, type Trip as ApiTrip, type Weather } from "$lib/api"
+  import { weatherLocation } from "$lib/device"
   import { config, isSameRouteAtStop, rowId, type DisplayRow } from "$lib/state"
   import TrackerSimulator from "$lib/components/simulator/TrackerSimulator.svelte"
   import { hexColor, type Color, type SimulatorRow } from "$lib/components/simulator/simulator"
@@ -18,6 +19,8 @@
 
   let trips: ApiTrip[] = $state([])
   let stations: StationStatus[] = $state([])
+  let alerts: Alert[] = $state([])
+  let weather: Weather | null = $state(null)
   let now = $state(Math.floor(Date.now() / 1000))
 
   function abbreviate(text: string) {
@@ -50,7 +53,27 @@
     [...new Set(rows.flatMap((row) => (row.kind === "bike" ? [row.stationId] : [])))].join(";")
   )
 
+  let routeIds = $derived(
+    [...new Set(rows.flatMap((row) => (row.kind === "transit" ? [row.routeId] : [])))].join(";")
+  )
+  let wantsWeather = $derived($config.weather || $config.logoColor === "temperature")
+
   async function refresh() {
+    try {
+      alerts = $config.alerts && routeIds ? await api.getAlerts(routeIds.split(";")) : []
+    } catch (error) {
+      console.error("Could not load alerts for the preview:", error)
+    }
+    try {
+      if (wantsWeather) {
+        const { lat, lon } = await weatherLocation($config)
+        weather = await api.getWeather(lat, lon)
+      } else {
+        weather = null
+      }
+    } catch (error) {
+      console.error("Could not load the weather for the preview:", error)
+    }
     now = Math.floor(Date.now() / 1000)
     try {
       trips = pairs ? (await api.getSchedule(pairs, 20)).trips : []
@@ -68,6 +91,9 @@
     // Reload when the selection changes
     void pairs
     void stationIds
+    void routeIds
+    void wantsWeather
+    void $config.alerts
     refresh()
   })
 
@@ -122,6 +148,9 @@
         routeName,
         routeColor,
         customName: row.customName.trim() || undefined,
+        alerts: alerts
+          .filter((alert) => alert.routeIds.includes(row.routeId))
+          .map((alert) => ({ level: alert.level, text: alert.text })),
         trip: trip && {
           routeName,
           routeColor: parseColor(style?.color) ?? parseColor(trip.routeColor) ?? routeColor,
@@ -137,7 +166,7 @@
 
 <div class="flex min-h-24 w-full items-center justify-center">
   <div class="simulator">
-    {#key `${$config.headerText}|${$config.nameOverflow}|${$config.timeUnits}|${$config.timeDisplay}`}
+    {#key `${$config.headerText}|${$config.nameOverflow}|${$config.timeUnits}|${$config.timeDisplay}|${$config.logoColor}|${$config.weather}`}
       <TrackerSimulator
         rows={simulatorRows}
         options={{
@@ -148,8 +177,11 @@
           scrollNames: $config.nameOverflow === "scroll",
           unitDisplay: $config.timeUnits,
           displayDepartureTimes: $config.timeDisplay === "departure",
-          timeStrings: $config.localization
+          timeStrings: $config.localization,
+          temperatureLogo: $config.logoColor === "temperature",
+          showWeather: $config.weather
         }}
+        {weather}
         class="w-full"
       />
     {/key}
