@@ -1,13 +1,20 @@
 <script lang="ts">
-  import { TrackerSimulator, type SimulatorOptions, type SimulatorRow } from "./simulator"
+  import {
+    TrackerSimulator,
+    type SimulatorOptions,
+    type SimulatorRow,
+    type SimulatorWeather
+  } from "./simulator"
 
   let {
     rows = [],
     options = {},
+    weather = null,
     class: className = ""
   }: {
     rows?: SimulatorRow[]
     options?: SimulatorOptions
+    weather?: SimulatorWeather | null
     class?: string
   } = $props()
 
@@ -24,6 +31,10 @@
 
   $effect(() => {
     simulator?.setRows(rows)
+  })
+
+  $effect(() => {
+    simulator?.setWeather(weather)
   })
 
   function describe(row: SimulatorRow) {

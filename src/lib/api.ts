@@ -61,6 +61,29 @@ export interface Route {
   headsigns: string[]
 }
 
+export type AlertLevel = "severe" | "warning" | "info"
+
+export interface Alert {
+  alertId: string
+  routeIds: string[]
+  level: AlertLevel
+  header: string
+  description: string
+  /** The short line the display shows */
+  text: string
+  activeUntil: number | null
+}
+
+export type WeatherKind = "clear" | "partly" | "cloudy" | "fog" | "rain" | "snow" | "storm"
+
+export interface Weather {
+  temperature: number
+  kind: WeatherKind
+  weatherCode: number
+  isDay: boolean
+  observedAt: number
+}
+
 class TransitTrackerApi {
   private baseUrl!: string
 
@@ -113,6 +136,26 @@ class TransitTrackerApi {
     )
     if (!response.ok) {
       throw new Error(`Error fetching schedule: ${response.statusText}`)
+    }
+    return response.json()
+  }
+
+  async getAlerts(routeIds: string[], signal?: AbortSignal): Promise<Alert[]> {
+    const response = await fetch(
+      `${this.baseUrl}/alerts/${encodeURIComponent(routeIds.join(";"))}`,
+      { signal }
+    )
+    if (!response.ok) {
+      throw new Error(`Error fetching alerts: ${response.statusText}`)
+    }
+    const { alerts } = await response.json()
+    return alerts
+  }
+
+  async getWeather(lat: number, lon: number, signal?: AbortSignal): Promise<Weather> {
+    const response = await fetch(`${this.baseUrl}/weather?lat=${lat}&lon=${lon}`, { signal })
+    if (!response.ok) {
+      throw new Error(`Error fetching weather: ${response.statusText}`)
     }
     return response.json()
   }
